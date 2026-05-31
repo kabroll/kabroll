@@ -31,12 +31,14 @@ interface Props {
   blocks: PixelBlock[];
   selection: Selection | null;
   onSelectionChange: (sel: Selection | null) => void;
+  onBlockClick?: (block: PixelBlock) => void;
 }
 
 export default function PixelCanvas({
   blocks,
   selection,
   onSelectionChange,
+  onBlockClick,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -339,7 +341,22 @@ export default function PixelCanvas({
     if (d?.mode === "select" && draftRef.current) {
       const sel = draftRef.current;
       draftRef.current = null;
-      // Ignore les "clics" d'un seul pixel involontaires ? On garde tout >=1.
+      // Clic simple (1×1) sur un bloc existant -> ouvre son détail.
+      if (sel.w === 1 && sel.h === 1 && onBlockClick) {
+        const hit = blocksRef.current.find(
+          (b) =>
+            b.status === "active" &&
+            sel.x >= b.x &&
+            sel.x < b.x + b.w &&
+            sel.y >= b.y &&
+            sel.y < b.y + b.h,
+        );
+        if (hit) {
+          draw();
+          onBlockClick(hit);
+          return;
+        }
+      }
       onSelectionChange(sel);
     }
   };

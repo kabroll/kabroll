@@ -28,6 +28,12 @@ export const PIXELS_COLLECTION = "pixels";
 /** Nom de la collection Firestore qui stocke les agrégats par utilisateur. */
 export const USERS_COLLECTION = "users";
 
+/** Nom de la collection Firestore qui stocke les offres de rachat. */
+export const OFFERS_COLLECTION = "offers";
+
+/** Montant minimal d'une offre / d'une mise en vente (en euros). */
+export const MIN_SALE_PRICE_EUR = 1;
+
 /** Formatte un montant en euros pour l'affichage (locale FR). */
 export function formatEUR(amount: number): string {
   return new Intl.NumberFormat("fr-FR", {

@@ -18,5 +18,14 @@ service cloud.firestore {
       allow read: if true;
       allow write: if false;
     }
+
+    // Offres de rachat : lisibles uniquement par l'acheteur ou le vendeur
+    // concerné. Création/màj exclusivement côté serveur (Admin SDK).
+    match /offers/{offerId} {
+      allow read: if request.auth != null
+                  && (resource.data.fromUid == request.auth.uid
+                      || resource.data.toUid == request.auth.uid);
+      allow write: if false;
+    }
   }
 }

@@ -4,15 +4,32 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import PixelCanvas from "@/components/PixelCanvas";
 import BuyPanel from "@/components/BuyPanel";
+import BlockDetailPanel from "@/components/BlockDetailPanel";
 import { usePixels } from "@/lib/usePixels";
 import { TOTAL_PIXELS, formatNumber } from "@/lib/constants";
-import type { Selection } from "@/lib/types";
+import type { PixelBlock, Selection } from "@/lib/types";
 
 function CanvasView() {
   const { blocks, usingMock } = usePixels();
   const [selection, setSelection] = useState<Selection | null>(null);
+  const [activeBlockId, setActiveBlockId] = useState<string | null>(null);
   const [showHint, setShowHint] = useState(false);
   const searchParams = useSearchParams();
+
+  const activeBlock = useMemo(
+    () => blocks.find((b) => b.id === activeBlockId) || null,
+    [blocks, activeBlockId],
+  );
+
+  function handleBlockClick(b: PixelBlock) {
+    setSelection(null);
+    setActiveBlockId(b.id);
+  }
+
+  function handleSelectionChange(s: Selection | null) {
+    if (s) setActiveBlockId(null);
+    setSelection(s);
+  }
 
   useEffect(() => {
     if (searchParams.get("buy") === "1") {
@@ -61,7 +78,8 @@ function CanvasView() {
       <PixelCanvas
         blocks={blocks}
         selection={selection}
-        onSelectionChange={setSelection}
+        onSelectionChange={handleSelectionChange}
+        onBlockClick={handleBlockClick}
       />
 
       {selection && (
@@ -70,6 +88,13 @@ function CanvasView() {
           blocks={blocks}
           onSelectionResize={setSelection}
           onClose={() => setSelection(null)}
+        />
+      )}
+
+      {activeBlock && !selection && (
+        <BlockDetailPanel
+          block={activeBlock}
+          onClose={() => setActiveBlockId(null)}
         />
       )}
     </div>

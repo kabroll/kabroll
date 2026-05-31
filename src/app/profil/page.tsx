@@ -1,18 +1,23 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@/components/AuthProvider";
 import { usePixels } from "@/lib/usePixels";
+import { useOffers } from "@/lib/useOffers";
+import { buyResale, listBlock, respondOffer, unlistBlock } from "@/lib/api";
 import {
+  MIN_SALE_PRICE_EUR,
   PRICE_PER_PIXEL_EUR,
   formatEUR,
   formatNumber,
 } from "@/lib/constants";
+import type { Offer, PixelBlock } from "@/lib/types";
 
 export default function ProfilPage() {
   const { user, loading, signInWithGoogle, signOut } = useAuth();
   const { blocks } = usePixels();
+  const { received, sent } = useOffers(user?.uid);
 
   const mine = useMemo(
     () =>
@@ -38,7 +43,7 @@ export default function ProfilPage() {
       <div className="max-w-md mx-auto px-5 py-20 text-center">
         <h1 className="text-2xl font-bold tracking-tight mb-2">Mon profil</h1>
         <p className="text-[14px] text-black/45 mb-6">
-          Connectez-vous pour retrouver vos pixels et votre historique.
+          Connectez-vous pour gérer vos pixels, ventes et offres.
         </p>
         <button
           onClick={signInWithGoogle}
@@ -79,9 +84,40 @@ export default function ProfilPage() {
       <div className="grid grid-cols-3 gap-3 mb-8">
         <Stat label="Pixels" value={formatNumber(totalPixels)} />
         <Stat label="Blocs" value={String(mine.length)} />
-        <Stat label="Total dépensé" value={formatEUR(totalSpent)} />
+        <Stat label="Valeur (achat)" value={formatEUR(totalSpent)} />
       </div>
 
+      {/* Offres reçues */}
+      {received.length > 0 && (
+        <section className="mb-8">
+          <h2 className="text-[13px] font-semibold text-black/35 uppercase tracking-wider mb-3">
+            Offres reçues ({received.length})
+          </h2>
+          <div className="space-y-2">
+            {received.map((o) => (
+              <ReceivedOfferRow key={o.id} offer={o} />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Mes offres envoyées */}
+      {sent.filter((o) => o.status === "pending" || o.status === "accepted").length > 0 && (
+        <section className="mb-8">
+          <h2 className="text-[13px] font-semibold text-black/35 uppercase tracking-wider mb-3">
+            Mes offres envoyées
+          </h2>
+          <div className="space-y-2">
+            {sent
+              .filter((o) => o.status === "pending" || o.status === "accepted")
+              .map((o) => (
+                <SentOfferRow key={o.id} offer={o} />
+              ))}
+          </div>
+        </section>
+      )}
+
+      {/* Mes pixels */}
       <h2 className="text-[13px] font-semibold text-black/35 uppercase tracking-wider mb-3">
         Mes pixels
       </h2>
@@ -99,37 +135,7 @@ export default function ProfilPage() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {mine.map((b) => (
-            <div
-              key={b.id}
-              className="flex items-center gap-3 p-3 rounded-2xl border border-black/[0.06]"
-            >
-              <div className="w-12 h-12 rounded-lg overflow-hidden border border-black/10 shrink-0 bg-zinc-100">
-                {b.fill === "image" && b.imageUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={b.imageUrl} alt="" className="w-full h-full object-cover" />
-                ) : (
-                  <div className="w-full h-full" style={{ backgroundColor: b.color || "#111" }} />
-                )}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="text-[13px] font-medium">
-                  {b.w} × {b.h} · {formatNumber(b.w * b.h)} px
-                </div>
-                <div className="text-[12px] text-black/40">
-                  position ({b.x}, {b.y})
-                </div>
-                {b.link && (
-                  <a
-                    href={b.link}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-[12px] text-blue-600 truncate block"
-                  >
-                    {b.link}
-                  </a>
-                )}
-              </div>
-            </div>
+            <OwnedBlockCard key={b.id} block={b} />
           ))}
         </div>
       )}
@@ -142,6 +148,220 @@ function Stat({ label, value }: { label: string; value: string }) {
     <div className="rounded-2xl border border-black/[0.06] px-4 py-3.5">
       <div className="text-[20px] font-bold leading-none">{value}</div>
       <div className="text-[12px] text-black/40 mt-1.5">{label}</div>
+    </div>
+  );
+}
+
+function BlockThumb({ block }: { block: PixelBlock }) {
+  const b = block;
+  return (
+    <div className="w-12 h-12 rounded-lg overflow-hidden border border-black/10 shrink-0 bg-zinc-100">
+      {b.fill === "image" && b.imageUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={b.imageUrl} alt="" className="w-full h-full object-cover" style={{ imageRendering: "pixelated" }} />
+      ) : (
+        <div className="w-full h-full" style={{ backgroundColor: b.color || "#111" }} />
+      )}
+    </div>
+  );
+}
+
+function OwnedBlockCard({ block }: { block: PixelBlock }) {
+  const [price, setPrice] = useState<string>(
+    block.salePrice ? String(block.salePrice) : "",
+  );
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function doList() {
+    setErr(null);
+    const p = Number(price);
+    if (!Number.isFinite(p) || p < MIN_SALE_PRICE_EUR) {
+      setErr(`Prix min. ${formatEUR(MIN_SALE_PRICE_EUR)}`);
+      return;
+    }
+    setBusy(true);
+    try {
+      await listBlock(block.id, p);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Erreur.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function doUnlist() {
+    setBusy(true);
+    setErr(null);
+    try {
+      await unlistBlock(block.id);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Erreur.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="p-3 rounded-2xl border border-black/[0.06] space-y-3">
+      <div className="flex items-center gap-3">
+        <BlockThumb block={block} />
+        <div className="flex-1 min-w-0">
+          <div className="text-[13px] font-medium">
+            {block.w} × {block.h} · {formatNumber(block.w * block.h)} px
+          </div>
+          <div className="text-[12px] text-black/40">position ({block.x}, {block.y})</div>
+        </div>
+      </div>
+
+      {block.forSale ? (
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[12px] text-green-700 bg-green-50 border border-green-100 rounded-lg px-2.5 py-1.5">
+            En vente · {formatEUR(block.salePrice || 0)}
+            {block.reservedForUid ? " (réservé)" : ""}
+          </span>
+          <button
+            onClick={doUnlist}
+            disabled={busy}
+            className="text-[12px] font-medium px-3 py-1.5 rounded-lg border border-black/10 hover:bg-black/[0.03] disabled:opacity-40"
+          >
+            Retirer
+          </button>
+        </div>
+      ) : (
+        <div className="flex items-center gap-2">
+          <input
+            type="number"
+            min={MIN_SALE_PRICE_EUR}
+            value={price}
+            onChange={(e) => setPrice(e.target.value)}
+            placeholder="Prix €"
+            className="flex-1 bg-black/[0.02] border border-black/[0.06] rounded-lg px-3 py-1.5 text-[13px] focus:outline-none focus:border-black/20"
+          />
+          <button
+            onClick={doList}
+            disabled={busy}
+            className="text-[12px] font-semibold px-3 py-1.5 rounded-lg bg-black text-white hover:bg-zinc-800 disabled:opacity-40"
+          >
+            Mettre en vente
+          </button>
+        </div>
+      )}
+      {err && <div className="text-[11px] text-red-600">{err}</div>}
+    </div>
+  );
+}
+
+function ReceivedOfferRow({ offer }: { offer: Offer }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function respond(action: "accept" | "reject") {
+    setBusy(true);
+    setErr(null);
+    try {
+      await respondOffer(offer.id, action);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Erreur.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const s = offer.blockSnapshot;
+  return (
+    <div className="flex items-center gap-3 p-3 rounded-2xl border border-black/[0.06]">
+      <div className="flex-1 min-w-0">
+        <div className="text-[13px]">
+          <span className="font-semibold">{offer.fromName}</span> propose{" "}
+          <span className="font-semibold">{formatEUR(offer.amount)}</span>
+        </div>
+        {s && (
+          <div className="text-[12px] text-black/40">
+            bloc {s.w}×{s.h} en ({s.x}, {s.y})
+          </div>
+        )}
+        {err && <div className="text-[11px] text-red-600">{err}</div>}
+      </div>
+      <button
+        onClick={() => respond("reject")}
+        disabled={busy}
+        className="text-[12px] font-medium px-3 py-1.5 rounded-lg border border-black/10 hover:bg-black/[0.03] disabled:opacity-40"
+      >
+        Refuser
+      </button>
+      <button
+        onClick={() => respond("accept")}
+        disabled={busy}
+        className="text-[12px] font-semibold px-3 py-1.5 rounded-lg bg-black text-white hover:bg-zinc-800 disabled:opacity-40"
+      >
+        Accepter
+      </button>
+    </div>
+  );
+}
+
+function SentOfferRow({ offer }: { offer: Offer }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const s = offer.blockSnapshot;
+
+  async function cancel() {
+    setBusy(true);
+    setErr(null);
+    try {
+      await respondOffer(offer.id, "cancel");
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Erreur.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function pay() {
+    setBusy(true);
+    setErr(null);
+    try {
+      await buyResale(offer.blockId);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Erreur.");
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="flex items-center gap-3 p-3 rounded-2xl border border-black/[0.06]">
+      <div className="flex-1 min-w-0">
+        <div className="text-[13px]">
+          Offre de <span className="font-semibold">{formatEUR(offer.amount)}</span>
+          {s && <span className="text-black/40"> · bloc {s.w}×{s.h} ({s.x}, {s.y})</span>}
+        </div>
+        <div className="text-[12px]">
+          {offer.status === "accepted" ? (
+            <span className="text-green-700">Acceptée — finalisez le paiement</span>
+          ) : (
+            <span className="text-black/40">En attente de réponse</span>
+          )}
+        </div>
+        {err && <div className="text-[11px] text-red-600">{err}</div>}
+      </div>
+      {offer.status === "accepted" ? (
+        <button
+          onClick={pay}
+          disabled={busy}
+          className="text-[12px] font-semibold px-3 py-1.5 rounded-lg bg-black text-white hover:bg-zinc-800 disabled:opacity-40"
+        >
+          Payer
+        </button>
+      ) : (
+        <button
+          onClick={cancel}
+          disabled={busy}
+          className="text-[12px] font-medium px-3 py-1.5 rounded-lg border border-black/10 hover:bg-black/[0.03] disabled:opacity-40"
+        >
+          Annuler
+        </button>
+      )}
     </div>
   );
 }

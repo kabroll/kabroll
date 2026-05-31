@@ -17,7 +17,11 @@ Stack : **Next.js 15 (App Router) · TypeScript · Tailwind CSS · Firebase
 - **Auth Firebase** (Google).
 - **Temps réel** : les pixels achetés apparaissent en direct (Firestore `onSnapshot`).
 - **Classement** des plus gros acheteurs.
-- **Profil** : mes pixels, total dépensé.
+- **Profil** : mes pixels, total dépensé, **gestion des ventes et offres**.
+- **Marketplace (revente)** :
+  - mise en vente d'un bloc à prix fixe (depuis le profil),
+  - **rachat direct** au prix affiché (clic sur le bloc → Stripe),
+  - **offres** : proposer un prix, le propriétaire accepte/refuse ; sur acceptation, vente privée réservée à l'acheteur qui finalise le paiement.
 - **Anti-double-achat** : réservation serveur + vérification de chevauchement.
 - **Mode démo** : l'app tourne sans configuration (données factices) le temps de tout brancher.
 
@@ -124,4 +128,9 @@ firestore.rules storage.rules
 - **Mentions légales / CGV / RGPD** (vente en France).
 - Job de **nettoyage** des réservations `pending` expirées (Cloud Function planifiée).
 - **Compression** des images uploadées et limites de taille (déjà dans `storage.rules`).
+- **Versement aux vendeurs (revente)** : le transfert de *propriété* est géré
+  par le webhook, mais reverser l'argent au vendeur nécessite **Stripe Connect**
+  (comptes connectés + `transfers`/`application_fee`). En attendant, le montant
+  dû est journalisé dans `users/{uid}.pendingPayout`. Voir
+  https://stripe.com/docs/connect pour brancher les paiements vendeurs.
 ```
