@@ -68,6 +68,7 @@ function CanvasView() {
         <BuyPanel
           selection={selection}
           blocks={blocks}
+          onSelectionResize={setSelection}
           onClose={() => setSelection(null)}
         />
       )}

@@ -1,14 +1,20 @@
 "use client";
 
 // Panneau d'achat : s'ouvre quand une sélection est faite sur le canvas.
-// Choix couleur/image, lien, message, calcul du prix, puis redirection Stripe.
+//
+// Mode "Couleur" : remplit la zone sélectionnée d'une couleur unie.
+// Mode "Image"   : importe une image, choisit sa taille (taille réelle ou
+//                  réduite ÷X), la transforme en PIXELS (downsampling) à
+//                  l'endroit choisi, avec aperçu pixelisé en direct.
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
 import { storage } from "@/lib/firebase";
 import { useAuth } from "@/components/AuthProvider";
-import { isSelectionFree } from "@/lib/geometry";
+import { clampSelection, isSelectionFree } from "@/lib/geometry";
 import {
+  GRID_SIZE,
+  MAX_BLOCK_SIDE,
   PRICE_PER_PIXEL_EUR,
   formatEUR,
   formatNumber,
@@ -18,74 +24,176 @@ import type { PixelBlock, PixelFill, Selection } from "@/lib/types";
 interface Props {
   selection: Selection;
   blocks: PixelBlock[];
+  onSelectionResize: (sel: Selection) => void;
   onClose: () => void;
 }
 
-export default function BuyPanel({ selection, blocks, onClose }: Props) {
+function sameSel(a: Selection | null, b: Selection | null): boolean {
+  if (!a || !b) return false;
+  return a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h;
+}
+
+export default function BuyPanel({
+  selection,
+  blocks,
+  onSelectionResize,
+  onClose,
+}: Props) {
   const { user, configured, signInWithGoogle } = useAuth();
 
   const [fill, setFill] = useState<PixelFill>("color");
   const [color, setColor] = useState("#111111");
+
+  // ---- Image -------------------------------------------------------------
   const [file, setFile] = useState<File | null>(null);
-  const [preview, setPreview] = useState<string | null>(null);
+  const [imgEl, setImgEl] = useState<HTMLImageElement | null>(null);
+  const [natural, setNatural] = useState<{ w: number; h: number } | null>(null);
+  const [divisor, setDivisor] = useState(1); // 1 = taille réelle
+  const previewCanvasRef = useRef<HTMLCanvasElement>(null);
+
   const [link, setLink] = useState("");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const pixels = selection.w * selection.h;
-  const total = pixels * PRICE_PER_PIXEL_EUR;
-  const free = useMemo(
-    () => isSelectionFree(selection, blocks),
-    [selection, blocks],
-  );
+  // Ancre = position/dimensions d'origine (rectangle dessiné). On distingue
+  // les changements "externes" (l'utilisateur redessine) de nos propres
+  // redimensionnements pour éviter toute boucle.
+  const [original, setOriginal] = useState<Selection>(selection);
+  const lastPushedRef = useRef<Selection | null>(null);
 
   useEffect(() => {
+    if (!sameSel(selection, lastPushedRef.current)) {
+      setOriginal(selection);
+    }
+  }, [selection]);
+
+  // Dimensions cibles (en cellules) selon le mode.
+  const target = useMemo<Selection>(() => {
+    if (fill === "image" && natural) {
+      const w = Math.max(1, Math.round(natural.w / divisor));
+      const h = Math.max(1, Math.round(natural.h / divisor));
+      return clampSelection({ x: original.x, y: original.y, w, h });
+    }
+    return original;
+  }, [fill, natural, divisor, original]);
+
+  // Propage la taille effective au parent (canvas + prix).
+  useEffect(() => {
+    lastPushedRef.current = target;
+    onSelectionResize(target);
+  }, [target, onSelectionResize]);
+
+  const pixels = target.w * target.h;
+  const totalPrice = pixels * PRICE_PER_PIXEL_EUR;
+  const free = useMemo(
+    () => isSelectionFree(target, blocks),
+    [target, blocks],
+  );
+  const clamped =
+    !!natural &&
+    fill === "image" &&
+    (target.w !== Math.max(1, Math.round(natural.w / divisor)) ||
+      target.h !== Math.max(1, Math.round(natural.h / divisor)));
+
+  // ---- Chargement de l'image ---------------------------------------------
+  useEffect(() => {
     if (!file) {
-      setPreview(null);
+      setImgEl(null);
+      setNatural(null);
       return;
     }
     const url = URL.createObjectURL(file);
-    setPreview(url);
+    const img = new Image();
+    img.onload = () => {
+      setImgEl(img);
+      setNatural({ w: img.naturalWidth, h: img.naturalHeight });
+      // Choisit un diviseur de départ pour que l'image tienne dans la grille.
+      const maxSide = Math.max(img.naturalWidth, img.naturalHeight);
+      setDivisor(maxSide > MAX_BLOCK_SIDE ? Math.ceil(maxSide / 400) : 1);
+    };
+    img.src = url;
     return () => URL.revokeObjectURL(url);
   }, [file]);
 
+  // Construit un canvas downsamplé (image -> pixels) aux dimensions cibles.
+  const buildPixelCanvas = useCallback(
+    (w: number, h: number): HTMLCanvasElement | null => {
+      if (!imgEl) return null;
+      const c = document.createElement("canvas");
+      c.width = w;
+      c.height = h;
+      const ctx = c.getContext("2d");
+      if (!ctx) return null;
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(imgEl, 0, 0, w, h);
+      return c;
+    },
+    [imgEl],
+  );
+
+  // Aperçu pixelisé en direct.
+  useEffect(() => {
+    if (fill !== "image" || !imgEl) return;
+    const small = buildPixelCanvas(target.w, target.h);
+    const dst = previewCanvasRef.current;
+    if (!small || !dst) return;
+    dst.width = target.w;
+    dst.height = target.h;
+    const ctx = dst.getContext("2d");
+    if (!ctx) return;
+    ctx.imageSmoothingEnabled = false;
+    ctx.clearRect(0, 0, target.w, target.h);
+    ctx.drawImage(small, 0, 0);
+  }, [fill, imgEl, target.w, target.h, buildPixelCanvas]);
+
+  function canvasToBlob(c: HTMLCanvasElement): Promise<Blob> {
+    return new Promise((resolve, reject) => {
+      c.toBlob(
+        (b) => (b ? resolve(b) : reject(new Error("Conversion image échouée."))),
+        "image/png",
+      );
+    });
+  }
+
+  // ---- Paiement -----------------------------------------------------------
   async function handlePay() {
     setError(null);
-
     if (!free) {
-      setError("Cette zone contient déjà des pixels achetés. Choisissez-en une autre.");
+      setError("Cette zone contient déjà des pixels. Choisissez-en une autre.");
       return;
     }
     if (!user) {
       await signInWithGoogle();
       return;
     }
-    if (fill === "image" && !file) {
-      setError("Sélectionnez une image à afficher.");
+    if (fill === "image" && !imgEl) {
+      setError("Importez une image.");
       return;
     }
 
     setLoading(true);
     try {
-      // 1) Upload de l'image (si besoin) vers Firebase Storage.
       let imageUrl: string | undefined;
-      if (fill === "image" && file) {
+      if (fill === "image") {
         if (!storage) throw new Error("Stockage indisponible (Firebase non configuré).");
-        const path = `pixels/${user.uid}/${Date.now()}-${file.name}`;
+        // On upload l'image DÉJÀ pixelisée aux dimensions exactes du bloc.
+        const c = buildPixelCanvas(target.w, target.h);
+        if (!c) throw new Error("Génération de l'image échouée.");
+        const blob = await canvasToBlob(c);
+        const path = `pixels/${user.uid}/${Date.now()}.png`;
         const r = storageRef(storage, path);
-        await uploadBytes(r, file);
+        await uploadBytes(r, blob, { contentType: "image/png" });
         imageUrl = await getDownloadURL(r);
       }
 
-      // 2) Création de la session de paiement Stripe.
       const idToken = await user.getIdToken();
       const res = await fetch("/api/create-checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           idToken,
-          selection,
+          selection: target,
           fill,
           color: fill === "color" ? color : undefined,
           imageUrl,
@@ -98,21 +206,24 @@ export default function BuyPanel({ selection, blocks, onClose }: Props) {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erreur lors de la création du paiement.");
       if (!data.url) throw new Error("Réponse de paiement invalide.");
-
-      window.location.href = data.url; // Redirection vers Stripe Checkout
+      window.location.href = data.url;
     } catch (e) {
       setError(e instanceof Error ? e.message : "Une erreur est survenue.");
       setLoading(false);
     }
   }
 
+  // Taille d'affichage de l'aperçu (upscale net, image-rendering pixelated).
+  const previewBox = useMemo(() => {
+    const maxPx = 200;
+    const ratio = target.w / target.h;
+    if (ratio >= 1) return { w: maxPx, h: Math.round(maxPx / ratio) };
+    return { w: Math.round(maxPx * ratio), h: maxPx };
+  }, [target.w, target.h]);
+
   return (
     <>
-      {/* Overlay mobile */}
-      <div
-        className="fixed inset-0 z-40 bg-black/20 sm:hidden"
-        onClick={onClose}
-      />
+      <div className="fixed inset-0 z-40 bg-black/20 sm:hidden" onClick={onClose} />
 
       <div className="fixed z-50 inset-x-0 bottom-0 sm:inset-x-auto sm:bottom-6 sm:right-6 sm:w-[380px] bg-white rounded-t-2xl sm:rounded-2xl shadow-[0_8px_60px_rgba(0,0,0,0.18)] border border-black/[0.06] max-h-[88vh] flex flex-col">
         {/* En-tête */}
@@ -120,7 +231,7 @@ export default function BuyPanel({ selection, blocks, onClose }: Props) {
           <div>
             <div className="text-[15px] font-semibold">Acheter ces pixels</div>
             <div className="text-[12px] text-black/40 mt-0.5">
-              {formatNumber(pixels)} pixels · {selection.w} × {selection.h} · à partir de ({selection.x}, {selection.y})
+              {formatNumber(pixels)} pixels · {target.w} × {target.h} · en ({target.x}, {target.y})
             </div>
           </div>
           <button
@@ -137,7 +248,7 @@ export default function BuyPanel({ selection, blocks, onClose }: Props) {
         <div className="px-5 py-4 overflow-y-auto space-y-4">
           {!free && (
             <div className="text-[12px] text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2">
-              Cette zone est déjà occupée. Fermez et sélectionnez une zone libre.
+              Cette zone est déjà occupée. Déplacez ou réduisez votre bloc.
             </div>
           )}
 
@@ -186,17 +297,27 @@ export default function BuyPanel({ selection, blocks, onClose }: Props) {
               </div>
             </div>
           ) : (
-            <div>
-              <label className="block text-[11px] font-semibold text-black/35 uppercase tracking-wider mb-2">
-                Image
-              </label>
-              <label className="block border-2 border-dashed border-black/10 rounded-2xl p-6 text-center bg-black/[0.01] cursor-pointer hover:border-black/20 transition-colors">
-                {preview ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={preview} alt="Aperçu" className="max-h-32 mx-auto rounded-lg" />
+            <div className="space-y-4">
+              {/* Import */}
+              <label className="block border-2 border-dashed border-black/10 rounded-2xl p-5 text-center bg-black/[0.01] cursor-pointer hover:border-black/20 transition-colors">
+                {imgEl ? (
+                  <div className="flex flex-col items-center gap-2">
+                    <canvas
+                      ref={previewCanvasRef}
+                      className="rounded-lg border border-black/10"
+                      style={{
+                        width: previewBox.w,
+                        height: previewBox.h,
+                        imageRendering: "pixelated",
+                      }}
+                    />
+                    <span className="text-[11px] text-black/35">
+                      Aperçu pixelisé · cliquez pour changer
+                    </span>
+                  </div>
                 ) : (
                   <div className="text-[13px] text-black/40">
-                    Cliquez pour choisir une image
+                    Cliquez pour importer une image
                     <div className="text-[11px] text-black/25 mt-1">PNG, JPG, GIF, SVG</div>
                   </div>
                 )}
@@ -207,6 +328,58 @@ export default function BuyPanel({ selection, blocks, onClose }: Props) {
                   onChange={(e) => setFile(e.target.files?.[0] || null)}
                 />
               </label>
+
+              {/* Contrôle de taille */}
+              {natural && (
+                <div className="bg-black/[0.02] border border-black/[0.06] rounded-xl p-3.5 space-y-3">
+                  <div className="flex items-center justify-between text-[12px]">
+                    <span className="text-black/40">Image d'origine</span>
+                    <span className="font-medium">{natural.w} × {natural.h} px</span>
+                  </div>
+
+                  <div className="flex items-center gap-1">
+                    {[1, 2, 4, 8].map((d) => (
+                      <button
+                        key={d}
+                        onClick={() => setDivisor(d)}
+                        className={
+                          "flex-1 py-1.5 rounded-lg text-[12px] font-medium border transition-all " +
+                          (divisor === d
+                            ? "bg-black border-black text-white"
+                            : "bg-white border-black/[0.08] text-black/50 hover:border-black/20")
+                        }
+                      >
+                        {d === 1 ? "Réelle" : `÷${d}`}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <span className="text-[11px] text-black/40 shrink-0">Diviser ÷{divisor}</span>
+                    <input
+                      type="range"
+                      min={1}
+                      max={32}
+                      value={divisor}
+                      onChange={(e) => setDivisor(Number(e.target.value))}
+                      className="flex-1 accent-black"
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between text-[12px] pt-1 border-t border-black/[0.06]">
+                    <span className="text-black/40">Taille finale</span>
+                    <span className="font-semibold">
+                      {target.w} × {target.h} cellules
+                    </span>
+                  </div>
+
+                  {clamped && (
+                    <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-2.5 py-1.5">
+                      Image rognée pour tenir dans la grille (max {GRID_SIZE}). Augmentez le diviseur.
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
@@ -258,7 +431,7 @@ export default function BuyPanel({ selection, blocks, onClose }: Props) {
             <span className="text-[13px] text-black/50">
               {formatNumber(pixels)} × {formatEUR(PRICE_PER_PIXEL_EUR)}
             </span>
-            <span className="text-[22px] font-bold">{formatEUR(total)}</span>
+            <span className="text-[22px] font-bold">{formatEUR(totalPrice)}</span>
           </div>
           <button
             onClick={handlePay}
@@ -274,7 +447,7 @@ export default function BuyPanel({ selection, blocks, onClose }: Props) {
                 <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75M6.75 21.75h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
                 </svg>
-                Payer {formatEUR(total)}
+                Payer {formatEUR(totalPrice)}
               </>
             )}
           </button>
