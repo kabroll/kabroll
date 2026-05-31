@@ -1,0 +1,22 @@
+rules_version = '2';
+
+// Règles de sécurité Firestore pour unmillion.fr
+// À déployer : `firebase deploy --only firestore:rules`
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Les blocs de pixels sont lisibles publiquement (affichage du canvas),
+    // mais NE PEUVENT PAS être écrits depuis le client : seules les routes
+    // serveur (Admin SDK, qui contourne ces règles) créent/valident un achat.
+    match /pixels/{blockId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // Agrégats utilisateurs : lecture publique (classement), écriture serveur.
+    match /users/{uid} {
+      allow read: if true;
+      allow write: if false;
+    }
+  }
+}
