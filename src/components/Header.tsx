@@ -17,7 +17,7 @@ export default function Header() {
 
   return (
     <header className="bg-white border-b border-black/[0.06] sticky top-0 z-30">
-      <div className="max-w-7xl mx-auto px-5 h-[58px] flex items-center justify-between gap-8">
+      <div className="max-w-7xl mx-auto px-3 sm:px-5 h-[58px] flex items-center justify-between gap-3 sm:gap-8">
         <Link href="/" className="flex items-center gap-3 shrink-0 group">
           <div className="w-8 h-8 bg-accent rounded-lg flex items-center justify-center shrink-0 group-hover:bg-accent-700 transition-colors">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
@@ -79,11 +79,22 @@ export default function Header() {
               Se connecter
             </button>
           )}
+          {/* Avatar utilisateur sur mobile (la déconnexion se fait via Profil) */}
+          {user && (
+            <span className="md:hidden w-7 h-7 rounded-full bg-black/[0.06] overflow-hidden flex items-center justify-center text-[11px] font-medium shrink-0">
+              {user.photoURL ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={user.photoURL} alt="" className="w-full h-full object-cover" />
+              ) : (
+                (user.displayName || user.email || "?")[0]?.toUpperCase()
+              )}
+            </span>
+          )}
           <Link
             href="/?buy=1"
-            className="inline-block px-4 py-1.5 bg-accent hover:bg-accent-700 text-white text-[13px] font-semibold rounded-lg transition-colors shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-offset-2"
+            className="inline-block px-3 sm:px-4 py-1.5 bg-accent hover:bg-accent-700 text-white text-[13px] font-semibold rounded-lg transition-colors shadow-sm whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-offset-2"
           >
-            Acheter des pixels
+            Acheter<span className="hidden sm:inline"> des pixels</span>
           </Link>
         </div>
       </div>

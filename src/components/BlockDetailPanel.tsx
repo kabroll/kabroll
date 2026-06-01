@@ -115,9 +115,13 @@ export default function BlockDetailPanel({ block, onClose }: Props) {
     <>
       <div className="fixed inset-0 z-40 bg-black/20 sm:hidden animate-fade-in" onClick={onClose} />
 
-      <div className="fixed z-50 inset-x-0 bottom-0 sm:inset-x-auto sm:bottom-6 sm:right-6 sm:w-[380px] bg-white rounded-t-2xl sm:rounded-2xl shadow-[0_8px_60px_rgba(0,0,0,0.18)] border border-black/[0.06] max-h-[88vh] flex flex-col animate-panel-up">
+      <div className="fixed z-50 inset-x-0 bottom-0 sm:inset-x-auto sm:bottom-6 sm:right-6 sm:w-[380px] bg-white rounded-t-2xl sm:rounded-2xl shadow-[0_8px_60px_rgba(0,0,0,0.18)] border border-black/[0.06] max-h-[85vh] flex flex-col animate-panel-up">
+        {/* Poignée (mobile) */}
+        <div className="sm:hidden flex justify-center pt-2 pb-1 shrink-0">
+          <span className="w-9 h-1 rounded-full bg-black/15" />
+        </div>
         {/* En-tête */}
-        <div className="flex items-start gap-3 px-5 py-3.5 border-b border-black/[0.06] shrink-0">
+        <div className="flex items-start gap-3 px-5 py-2.5 sm:py-3.5 border-b border-black/[0.06] shrink-0">
           <div className="w-12 h-12 rounded-lg overflow-hidden border border-black/10 shrink-0 bg-zinc-100">
             {block.fill === "image" && block.imageUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
@@ -221,7 +225,7 @@ export default function BlockDetailPanel({ block, onClose }: Props) {
         </div>
 
         {/* Actions */}
-        <div className="px-5 py-4 border-t border-black/[0.06] shrink-0 space-y-2">
+        <div className="px-5 py-4 border-t border-black/[0.06] shrink-0 space-y-2" style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}>
           {isOwner ? (
             <>
               {block.forSale ? (

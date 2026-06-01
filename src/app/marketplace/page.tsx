@@ -38,7 +38,7 @@ export default function MarketplacePage() {
   }, [blocks, sort, query]);
 
   return (
-    <div className="max-w-4xl mx-auto px-5 py-8">
+    <div className="max-w-4xl mx-auto px-4 sm:px-5 py-6 sm:py-8">
       <div className="mb-6">
         <h1 className="text-2xl font-bold tracking-tight">Marketplace</h1>
         <p className="text-[14px] text-black/45 mt-1">

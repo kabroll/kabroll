@@ -71,7 +71,7 @@ function CanvasView() {
       <Onboarding />
 
       {/* Bandeau statistiques */}
-      <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 bg-white/95 backdrop-blur border border-black/[0.06] rounded-full shadow-sm px-4 py-2 flex items-center gap-3 text-[12px] whitespace-nowrap animate-fade-in">
+      <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 max-w-[calc(100%-1rem)] bg-white/95 backdrop-blur border border-black/[0.06] rounded-full shadow-sm px-3 sm:px-4 py-1.5 sm:py-2 flex items-center gap-2 sm:gap-3 text-[12px] whitespace-nowrap animate-fade-in">
         <span className="font-semibold tabular-nums">{formatNumber(animatedSold)}</span>
         <span className="text-black/40">vendus</span>
         <span className="hidden xs:inline w-px h-3.5 bg-black/10" />
@@ -80,8 +80,8 @@ function CanvasView() {
         <span className="hidden sm:inline w-16 h-1.5 rounded-full bg-black/[0.08] overflow-hidden">
           <span className="block h-full bg-accent transition-[width] duration-700 ease-out" style={{ width: `${Math.max(2, pct)}%` }} />
         </span>
-        <span className="w-px h-3.5 bg-black/10" />
-        <CountdownPill />
+        <span className="hidden xs:inline w-px h-3.5 bg-black/10" />
+        <span className="hidden xs:inline"><CountdownPill /></span>
       </div>
 
       {loading && (
@@ -112,19 +112,8 @@ function CanvasView() {
         focusCell={focusCell}
       />
 
-      {/* Barre d'outils + palette (masquée quand le checkout est ouvert sur mobile) */}
-      {!checkoutOpen && <EditorToolbar />}
-
-      {/* Bouton flottant "Continuer" quand on a peint */}
-      {count > 0 && !checkoutOpen && (
-        <button
-          onClick={() => setCheckoutOpen(true)}
-          className="absolute top-3 right-3 sm:top-auto sm:bottom-28 z-30 bg-accent hover:bg-accent-700 text-white rounded-full shadow-lg px-4 py-2.5 text-[13px] font-semibold flex items-center gap-2 animate-fade-in"
-        >
-          <span>Continuer ({formatNumber(count)} px)</span>
-          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
-        </button>
-      )}
+      {/* Barre d'outils + palette + CTA Continuer (masquée quand le checkout est ouvert) */}
+      {!checkoutOpen && <EditorToolbar onContinue={() => setCheckoutOpen(true)} />}
 
       {checkoutOpen && (
         <BuyPanel

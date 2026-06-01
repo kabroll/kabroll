@@ -73,7 +73,7 @@ export default function ProfilPage() {
 
   if (loading) {
     return (
-      <div className="max-w-3xl mx-auto px-5 py-8">
+      <div className="max-w-3xl mx-auto px-4 sm:px-5 py-6 sm:py-8">
         <div className="flex items-center gap-4 mb-8">
           <div className="w-14 h-14 rounded-full bg-black/[0.06] animate-pulse" />
           <div className="flex-1 space-y-2">
@@ -113,7 +113,7 @@ export default function ProfilPage() {
   }
 
   return (
-    <div className="max-w-3xl mx-auto px-5 py-8">
+    <div className="max-w-3xl mx-auto px-4 sm:px-5 py-6 sm:py-8">
       {/* En-tête profil */}
       <div className="flex items-center gap-4 mb-8">
         {user.photoURL ? (
@@ -202,9 +202,9 @@ export default function ProfilPage() {
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-black/[0.06] px-4 py-3.5">
-      <div className="text-[20px] font-bold leading-none">{value}</div>
-      <div className="text-[12px] text-black/40 mt-1.5">{label}</div>
+    <div className="rounded-2xl border border-black/[0.06] px-3 sm:px-4 py-3 sm:py-3.5">
+      <div className="text-[16px] sm:text-[20px] font-bold leading-none tabular-nums truncate">{value}</div>
+      <div className="text-[11px] sm:text-[12px] text-black/40 mt-1.5">{label}</div>
     </div>
   );
 }

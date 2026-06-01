@@ -218,9 +218,13 @@ export default function BuyPanel({ blocks, onPreviewRect, onClose }: Props) {
     <>
       <div className="fixed inset-0 z-40 bg-black/20 sm:hidden animate-fade-in" onClick={onClose} />
 
-      <div className="fixed z-50 inset-x-0 bottom-0 sm:inset-x-auto sm:top-[72px] sm:right-6 sm:bottom-auto sm:w-[360px] bg-white rounded-t-2xl sm:rounded-2xl shadow-[0_8px_60px_rgba(0,0,0,0.18)] border border-black/[0.06] sm:max-h-[calc(100vh-150px)] max-h-[80vh] flex flex-col animate-panel-up">
+      <div className="fixed z-50 inset-x-0 bottom-0 sm:inset-x-auto sm:top-[72px] sm:right-6 sm:bottom-auto sm:w-[360px] bg-white rounded-t-2xl sm:rounded-2xl shadow-[0_8px_60px_rgba(0,0,0,0.18)] border border-black/[0.06] sm:max-h-[calc(100vh-150px)] max-h-[85vh] flex flex-col animate-panel-up">
+        {/* Poignée (mobile) */}
+        <div className="sm:hidden flex justify-center pt-2 pb-1 shrink-0">
+          <span className="w-9 h-1 rounded-full bg-black/15" />
+        </div>
         {/* En-tête */}
-        <div className="flex items-start justify-between px-5 py-3.5 border-b border-black/[0.06] shrink-0">
+        <div className="flex items-start justify-between px-5 py-2.5 sm:py-3.5 border-b border-black/[0.06] shrink-0">
           <div>
             <div className="text-[15px] font-semibold">Votre création</div>
             <div className="text-[12px] text-black/40 mt-0.5">
@@ -372,7 +376,7 @@ export default function BuyPanel({ blocks, onPreviewRect, onClose }: Props) {
         </div>
 
         {/* Pied */}
-        <div className="px-5 py-4 border-t border-black/[0.06] shrink-0">
+        <div className="px-5 py-4 border-t border-black/[0.06] shrink-0" style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}>
           <div className="flex items-baseline justify-between mb-3">
             <span className="text-[13px] text-black/50">{formatNumber(pixels)} × {formatEUR(PRICE_PER_PIXEL_EUR)}</span>
             <span className="text-[22px] font-bold">{formatEUR(totalPrice)}</span>

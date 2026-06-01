@@ -34,7 +34,7 @@ export default function LeaderboardPage() {
   }, [blocks]);
 
   return (
-    <div className="max-w-3xl mx-auto px-5 py-8">
+    <div className="max-w-3xl mx-auto px-4 sm:px-5 py-6 sm:py-8">
       <div className="mb-6">
         <h1 className="text-2xl font-bold tracking-tight">Classement</h1>
         <p className="text-[14px] text-black/45 mt-1">

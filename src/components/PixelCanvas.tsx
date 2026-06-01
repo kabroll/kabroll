@@ -507,25 +507,25 @@ export default function PixelCanvas({
         className={cursorClass}
       />
 
-      {/* Coords + zoom */}
+      {/* Coords + zoom (badge zoom masqué sur très petit écran) */}
       <div className="absolute top-3 right-3 flex items-center gap-2 animate-fade-in">
         {coords && (
           <div className="bg-white/95 backdrop-blur border border-black/[0.06] rounded-lg shadow-sm px-2.5 py-1.5 text-[11px] font-mono text-black/60 tabular-nums">
             {coords.x}, {coords.y}
           </div>
         )}
-        <div className="bg-white/95 backdrop-blur border border-black/[0.06] rounded-lg shadow-sm px-2.5 py-1.5 text-[11px] font-medium text-black/50 tabular-nums">
+        <div className="hidden xs:block bg-white/95 backdrop-blur border border-black/[0.06] rounded-lg shadow-sm px-2.5 py-1.5 text-[11px] font-medium text-black/50 tabular-nums">
           {Math.round(zoomLabel * 100) >= 100 ? `${Math.round(zoomLabel)}×` : `${Math.round(zoomLabel * 100)}%`}
         </div>
       </div>
 
-      {/* Minimap */}
-      <div className="absolute bottom-[92px] left-3 bg-white/95 backdrop-blur rounded-xl shadow-sm border border-black/[0.06] p-1.5 animate-fade-in hidden sm:block">
+      {/* Minimap (desktop/tablette uniquement) */}
+      <div className="absolute bottom-[108px] left-3 bg-white/95 backdrop-blur rounded-xl shadow-sm border border-black/[0.06] p-1.5 animate-fade-in hidden md:block">
         <canvas ref={miniRef} style={{ width: 96, height: 96 }} className="rounded-md border border-black/[0.06]" />
       </div>
 
-      {/* Zoom */}
-      <div className="absolute bottom-[92px] right-3 flex flex-col gap-1 bg-white/95 backdrop-blur rounded-xl shadow-sm border border-black/[0.06] p-1 animate-fade-in">
+      {/* Zoom (desktop/tablette — sur mobile : pincer / double-tap) */}
+      <div className="absolute bottom-[108px] right-3 flex-col gap-1 bg-white/95 backdrop-blur rounded-xl shadow-sm border border-black/[0.06] p-1 animate-fade-in hidden md:flex">
         <button onClick={() => { const c = containerRef.current!; zoomAt(c.clientWidth / 2, c.clientHeight / 2, 1.4); }}
           className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-black/[0.05] text-lg font-semibold focus-visible:ring-2 focus-visible:ring-accent/40" aria-label="Zoomer">+</button>
         <button onClick={() => { const c = containerRef.current!; zoomAt(c.clientWidth / 2, c.clientHeight / 2, 1 / 1.4); }}
