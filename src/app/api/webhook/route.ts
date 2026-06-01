@@ -17,7 +17,7 @@ import { getStripe } from "@/lib/stripe";
 import { getAdminDb } from "@/lib/firebaseAdmin";
 import { FieldValue } from "firebase-admin/firestore";
 import { PIXELS_COLLECTION } from "@/lib/constants";
-import { fulfillPurchase, fulfillResale } from "@/lib/fulfillment";
+import { fulfillPurchaseGroup, fulfillResale } from "@/lib/fulfillment";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -60,9 +60,14 @@ export async function POST(req: Request) {
             pixels: Number(m.pixels || 0),
             amount,
           });
-        } else {
-          await fulfillPurchase({
-            blockId: m.blockId || "",
+        } else if (m.purchaseId) {
+          // Achat (1+ rectangles) : on retrouve tous les blocs du groupe.
+          const grp = await db
+            .collection(PIXELS_COLLECTION)
+            .where("purchaseId", "==", m.purchaseId)
+            .get();
+          await fulfillPurchaseGroup({
+            blockIds: grp.docs.map((d) => d.id),
             uid: m.uid || "",
             pixels: Number(m.pixels || 0),
             amount,
@@ -73,11 +78,11 @@ export async function POST(req: Request) {
 
       case "checkout.session.expired": {
         const session = event.data.object as Stripe.Checkout.Session;
-        if (session.metadata?.type === "resale") {
+        const m = session.metadata ?? {};
+        if (m.type === "resale") {
           // Libère le verrou de rachat.
-          const blockId = session.metadata?.blockId;
-          if (blockId) {
-            await db.collection(PIXELS_COLLECTION).doc(blockId).set(
+          if (m.blockId) {
+            await db.collection(PIXELS_COLLECTION).doc(m.blockId).set(
               {
                 salePendingUid: FieldValue.delete(),
                 salePendingUntil: FieldValue.delete(),
@@ -86,16 +91,17 @@ export async function POST(req: Request) {
               { merge: true },
             );
           }
-        } else {
-          // Supprime la réservation d'achat initial non payée.
-          const blockId = session.metadata?.blockId;
-          if (blockId) {
-            const ref = db.collection(PIXELS_COLLECTION).doc(blockId);
-            const doc = await ref.get();
-            if (doc.exists && doc.data()?.status === "pending") {
-              await ref.delete();
-            }
-          }
+        } else if (m.purchaseId) {
+          // Supprime les réservations d'achat non payées du groupe.
+          const grp = await db
+            .collection(PIXELS_COLLECTION)
+            .where("purchaseId", "==", m.purchaseId)
+            .get();
+          const batch = db.batch();
+          grp.forEach((d) => {
+            if (d.data()?.status === "pending") batch.delete(d.ref);
+          });
+          await batch.commit();
         }
         break;
       }

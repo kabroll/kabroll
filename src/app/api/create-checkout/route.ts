@@ -20,7 +20,7 @@ import {
   RESERVATION_TTL_MS,
   isClosed,
 } from "@/lib/constants";
-import { fulfillPurchase, fulfillResale } from "@/lib/fulfillment";
+import { fulfillPurchaseGroup, fulfillResale } from "@/lib/fulfillment";
 import type { PixelBlock, Selection } from "@/lib/types";
 
 // Mode test : si Stripe n'est pas configuré, on simule un paiement réussi
@@ -54,7 +54,7 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json();
-    const { idToken, selection, fill, color, imageUrl, link, message, ownerName } = body;
+    const { idToken, rects, fill, color, imageUrl, link, message, ownerName } = body;
 
     // 1) Auth
     if (!idToken || typeof idToken !== "string") {
@@ -165,24 +165,35 @@ export async function POST(req: Request) {
     }
 
     // ===== ACHAT INITIAL =====================================================
-    // 2) Validation de la sélection
-    if (!isValidSelection(selection)) {
-      return NextResponse.json({ error: "Sélection invalide." }, { status: 400 });
+    // 2) Validation des rectangles (1 ou plusieurs)
+    if (!Array.isArray(rects) || rects.length === 0) {
+      return NextResponse.json({ error: "Sélection vide." }, { status: 400 });
     }
-    const { x, y, w, h } = selection;
-    if (
-      x < 0 || y < 0 ||
-      w < MIN_BLOCK_SIDE || h < MIN_BLOCK_SIDE ||
-      w > MAX_BLOCK_SIDE || h > MAX_BLOCK_SIDE ||
-      x + w > GRID_SIZE || y + h > GRID_SIZE
-    ) {
-      return NextResponse.json({ error: "Sélection hors limites." }, { status: 400 });
+    if (rects.length > 4096) {
+      return NextResponse.json({ error: "Sélection trop fragmentée." }, { status: 400 });
+    }
+    for (const r of rects) {
+      if (!isValidSelection(r)) {
+        return NextResponse.json({ error: "Sélection invalide." }, { status: 400 });
+      }
+      if (
+        r.x < 0 || r.y < 0 ||
+        r.w < MIN_BLOCK_SIDE || r.h < MIN_BLOCK_SIDE ||
+        r.w > MAX_BLOCK_SIDE || r.h > MAX_BLOCK_SIDE ||
+        r.x + r.w > GRID_SIZE || r.y + r.h > GRID_SIZE
+      ) {
+        return NextResponse.json({ error: "Sélection hors limites." }, { status: 400 });
+      }
     }
     if (fill !== "color" && fill !== "image") {
       return NextResponse.json({ error: "Type de contenu invalide." }, { status: 400 });
     }
     if (fill === "image" && !imageUrl) {
       return NextResponse.json({ error: "Image manquante." }, { status: 400 });
+    }
+    // Une image = un seul rectangle.
+    if (fill === "image" && rects.length !== 1) {
+      return NextResponse.json({ error: "Une image occupe un seul rectangle." }, { status: 400 });
     }
 
     // 3) Vérification des chevauchements (actifs + réservations non expirées)
@@ -191,43 +202,54 @@ export async function POST(req: Request) {
       .where("status", "in", ["active", "pending"])
       .get();
 
+    const existing: PixelBlock[] = [];
     for (const doc of snap.docs) {
       const b = doc.data() as PixelBlock;
       if (b.status === "pending" && b.expiresAt && b.expiresAt < now) continue;
-      if (rectsOverlap(selection, b)) {
+      existing.push(b);
+    }
+    for (const r of rects as Selection[]) {
+      if (existing.some((b) => rectsOverlap(r, b))) {
         return NextResponse.json(
-          { error: "Cette zone est déjà occupée ou réservée." },
+          { error: "Une partie de la sélection est déjà occupée ou réservée." },
           { status: 409 },
         );
       }
     }
 
-    const pixels = w * h;
-    const amountCents = pixels * PRICE_PER_PIXEL_CENTS;
+    const totalPixels = (rects as Selection[]).reduce((acc, r) => acc + r.w * r.h, 0);
+    const amountCents = totalPixels * PRICE_PER_PIXEL_CENTS;
+    // Identifiant de groupe : relie tous les blocs d'un même achat.
+    const purchaseId = db.collection(PIXELS_COLLECTION).doc().id;
 
-    // 4) Réservation "pending"
-    const blockRef = db.collection(PIXELS_COLLECTION).doc();
-    const blockData: Omit<PixelBlock, "id"> = {
-      x, y, w, h,
-      fill,
-      ...(fill === "color" ? { color: color || "#111111" } : {}),
-      ...(imageUrl ? { imageUrl } : {}),
-      ...(link ? { link } : {}),
-      ...(message ? { message } : {}),
-      ownerId: uid,
-      ownerName: ownerName || "Anonyme",
-      status: "pending",
-      createdAt: now,
-      expiresAt: now + RESERVATION_TTL_MS,
-    };
-    await blockRef.set(blockData);
+    // 4) Réservation "pending" — un bloc par rectangle.
+    const blockIds: string[] = [];
+    for (const r of rects as Selection[]) {
+      const blockRef = db.collection(PIXELS_COLLECTION).doc();
+      const blockData: Omit<PixelBlock, "id"> & { purchaseId: string } = {
+        x: r.x, y: r.y, w: r.w, h: r.h,
+        fill,
+        ...(fill === "color" ? { color: color || "#111111" } : {}),
+        ...(imageUrl ? { imageUrl } : {}),
+        ...(link ? { link } : {}),
+        ...(message ? { message } : {}),
+        ownerId: uid,
+        ownerName: ownerName || "Anonyme",
+        status: "pending",
+        createdAt: now,
+        expiresAt: now + RESERVATION_TTL_MS,
+        purchaseId,
+      };
+      await blockRef.set(blockData);
+      blockIds.push(blockRef.id);
+    }
 
     // --- Mode test : on finalise l'achat immédiatement ---
     if (SIMULATE) {
-      await fulfillPurchase({
-        blockId: blockRef.id,
+      await fulfillPurchaseGroup({
+        blockIds,
         uid,
-        pixels,
+        pixels: totalPixels,
         amount: amountCents / 100,
       });
       return NextResponse.json({ url: `${siteUrl}/success?simulated=1`, simulated: true });
@@ -239,24 +261,26 @@ export async function POST(req: Request) {
       mode: "payment",
       line_items: [
         {
-          quantity: pixels,
+          quantity: totalPixels,
           price_data: {
             currency: "eur",
             unit_amount: PRICE_PER_PIXEL_CENTS,
             product_data: {
-              name: `Pixels unmillion.fr (${w}×${h})`,
-              description: `Bloc de ${pixels} pixels en (${x}, ${y})`,
+              name: `Pixels unmillion.fr`,
+              description: `${totalPixels} pixels · ${rects.length} zone${rects.length > 1 ? "s" : ""}`,
             },
           },
         },
       ],
-      metadata: { blockId: blockRef.id, uid, pixels: String(pixels), amountCents: String(amountCents) },
+      metadata: {
+        purchaseId,
+        uid,
+        pixels: String(totalPixels),
+        amountCents: String(amountCents),
+      },
       success_url: `${siteUrl}/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${siteUrl}/cancel`,
     });
-
-    // On mémorise l'id de session pour le nettoyage éventuel.
-    await blockRef.update({ stripeSessionId: session.id });
 
     return NextResponse.json({ url: session.url });
   } catch (e) {

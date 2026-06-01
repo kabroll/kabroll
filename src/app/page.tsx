@@ -15,7 +15,8 @@ import type { PixelBlock, Selection } from "@/lib/types";
 
 function CanvasView() {
   const { blocks, loading, usingMock } = usePixels();
-  const [selection, setSelection] = useState<Selection | null>(null);
+  const [cells, setCells] = useState<Set<string>>(new Set());
+  const [previewRect, setPreviewRect] = useState<Selection | null>(null);
   const [activeBlockId, setActiveBlockId] = useState<string | null>(null);
   const [showHint, setShowHint] = useState(false);
   const [focusCell, setFocusCell] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
@@ -27,13 +28,13 @@ function CanvasView() {
   );
 
   function handleBlockClick(b: PixelBlock) {
-    setSelection(null);
+    setCells(new Set());
     setActiveBlockId(b.id);
   }
 
-  function handleSelectionChange(s: Selection | null) {
-    if (s) setActiveBlockId(null);
-    setSelection(s);
+  function handleCellsChange(next: Set<string>) {
+    if (next.size > 0) setActiveBlockId(null);
+    setCells(next);
   }
 
   useEffect(() => {
@@ -106,28 +107,32 @@ function CanvasView() {
 
       {showHint && (
         <div className="absolute top-16 left-1/2 -translate-x-1/2 z-20 bg-black text-white text-[12px] rounded-lg px-3.5 py-2 shadow-lg animate-fade-in">
-          Tracez une zone sur le canvas pour choisir vos pixels ✏️
+          Cliquez ou glissez pour peindre vos pixels · gomme pour corriger ✏️
         </div>
       )}
 
       <PixelCanvas
         blocks={blocks}
-        selection={selection}
-        onSelectionChange={handleSelectionChange}
+        cells={cells}
+        onCellsChange={handleCellsChange}
         onBlockClick={handleBlockClick}
+        previewRect={previewRect}
         focusCell={focusCell}
       />
 
-      {selection && (
+      {cells.size > 0 && (
         <BuyPanel
-          selection={selection}
+          cells={cells}
           blocks={blocks}
-          onSelectionResize={setSelection}
-          onClose={() => setSelection(null)}
+          onPreviewRect={setPreviewRect}
+          onClose={() => {
+            setCells(new Set());
+            setPreviewRect(null);
+          }}
         />
       )}
 
-      {activeBlock && !selection && (
+      {activeBlock && cells.size === 0 && (
         <BlockDetailPanel
           block={activeBlock}
           onClose={() => setActiveBlockId(null)}

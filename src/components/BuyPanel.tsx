@@ -1,11 +1,11 @@
 "use client";
 
-// Panneau d'achat : s'ouvre quand une sélection est faite sur le canvas.
+// Panneau d'achat. Travaille avec un ENSEMBLE DE CELLULES sélectionnées.
 //
-// Mode "Couleur" : remplit la zone sélectionnée d'une couleur unie.
-// Mode "Image"   : importe une image, choisit sa taille (taille réelle ou
-//                  réduite ÷X), la transforme en PIXELS (downsampling) à
-//                  l'endroit choisi, avec aperçu pixelisé en direct.
+// Mode "Couleur" : remplit chaque cellule sélectionnée (forme libre).
+//                  Prix = nombre de cellules.
+// Mode "Image"   : pose une image (downsamplée en pixels) sur un rectangle
+//                  ancré au coin haut-gauche de la sélection. Prix = aire.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
@@ -13,7 +13,13 @@ import { storage } from "@/lib/firebase";
 import { useAuth } from "@/components/AuthProvider";
 import { useToast } from "@/components/ToastProvider";
 import { Button } from "@/components/ui";
-import { clampSelection, isSelectionFree } from "@/lib/geometry";
+import {
+  cellsBoundingBox,
+  decomposeCellsToRects,
+  clampSelection,
+  isCellFree,
+  isSelectionFree,
+} from "@/lib/geometry";
 import {
   GRID_SIZE,
   MAX_BLOCK_SIDE,
@@ -25,36 +31,24 @@ import {
 import type { PixelBlock, PixelFill, Selection } from "@/lib/types";
 
 interface Props {
-  selection: Selection;
+  cells: Set<string>;
   blocks: PixelBlock[];
-  onSelectionResize: (sel: Selection) => void;
+  onPreviewRect: (rect: Selection | null) => void;
   onClose: () => void;
 }
 
-function sameSel(a: Selection | null, b: Selection | null): boolean {
-  if (!a || !b) return false;
-  return a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h;
-}
-
-export default function BuyPanel({
-  selection,
-  blocks,
-  onSelectionResize,
-  onClose,
-}: Props) {
+export default function BuyPanel({ cells, blocks, onPreviewRect, onClose }: Props) {
   const { user, configured, signInWithGoogle } = useAuth();
   const toast = useToast();
-  // Stripe prêt ? (clé publique présente) — sinon achat simulé.
   const stripeReady = Boolean(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY);
 
   const [fill, setFill] = useState<PixelFill>("color");
   const [color, setColor] = useState("#4f46e5");
 
-  // ---- Image -------------------------------------------------------------
   const [file, setFile] = useState<File | null>(null);
   const [imgEl, setImgEl] = useState<HTMLImageElement | null>(null);
   const [natural, setNatural] = useState<{ w: number; h: number } | null>(null);
-  const [divisor, setDivisor] = useState(1); // 1 = taille réelle
+  const [divisor, setDivisor] = useState(1);
   const previewCanvasRef = useRef<HTMLCanvasElement>(null);
 
   const [link, setLink] = useState("");
@@ -62,55 +56,47 @@ export default function BuyPanel({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Ancre = position/dimensions d'origine (rectangle dessiné). On distingue
-  // les changements "externes" (l'utilisateur redessine) de nos propres
-  // redimensionnements pour éviter toute boucle.
-  const [original, setOriginal] = useState<Selection>(selection);
-  const lastPushedRef = useRef<Selection | null>(null);
-
-  useEffect(() => {
-    if (!sameSel(selection, lastPushedRef.current)) {
-      setOriginal(selection);
-    }
-  }, [selection]);
-
-  // Dimensions cibles (en cellules) selon le mode.
-  const target = useMemo<Selection>(() => {
-    if (fill === "image" && natural) {
-      const w = Math.max(1, Math.round(natural.w / divisor));
-      const h = Math.max(1, Math.round(natural.h / divisor));
-      return clampSelection({ x: original.x, y: original.y, w, h });
-    }
-    return original;
-  }, [fill, natural, divisor, original]);
-
-  // Propage la taille effective au parent (canvas + prix).
-  useEffect(() => {
-    lastPushedRef.current = target;
-    onSelectionResize(target);
-  }, [target, onSelectionResize]);
-
-  // Ajuste manuellement un champ de la sélection (mode couleur).
-  function setField(field: keyof Selection, value: number) {
-    const v = Math.max(0, Math.floor(value || 0));
-    const next = clampSelection({ ...original, [field]: v });
-    setOriginal(next);
-  }
-
   const closed = isClosed();
-  const pixels = target.w * target.h;
-  const totalPrice = pixels * PRICE_PER_PIXEL_EUR;
-  const free = useMemo(
-    () => isSelectionFree(target, blocks),
-    [target, blocks],
-  );
-  const clamped =
-    !!natural &&
-    fill === "image" &&
-    (target.w !== Math.max(1, Math.round(natural.w / divisor)) ||
-      target.h !== Math.max(1, Math.round(natural.h / divisor)));
+  const bbox = useMemo(() => cellsBoundingBox(cells), [cells]);
 
-  // ---- Chargement de l'image ---------------------------------------------
+  // Rectangle effectif en mode image (ancré au coin haut-gauche de la sélection).
+  const imageRect = useMemo<Selection | null>(() => {
+    if (fill !== "image" || !natural || !bbox) return null;
+    const w = Math.max(1, Math.round(natural.w / divisor));
+    const h = Math.max(1, Math.round(natural.h / divisor));
+    return clampSelection({ x: bbox.x, y: bbox.y, w, h });
+  }, [fill, natural, divisor, bbox]);
+
+  // Nombre de pixels facturés et liberté de la zone.
+  const cellsCount = cells.size;
+  const imagePixels = imageRect ? imageRect.w * imageRect.h : 0;
+  const pixels = fill === "image" ? imagePixels : cellsCount;
+  const totalPrice = pixels * PRICE_PER_PIXEL_EUR;
+
+  const free = useMemo(() => {
+    if (fill === "image") {
+      return imageRect ? isSelectionFree(imageRect, blocks) : false;
+    }
+    // Mode couleur : toutes les cellules sélectionnées doivent être libres.
+    for (const k of cells) {
+      const [x, y] = k.split(",").map(Number);
+      if (!isCellFree(x, y, blocks)) return false;
+    }
+    return cells.size > 0;
+  }, [fill, imageRect, cells, blocks]);
+
+  // Affiche / masque l'aperçu rectangle sur le canvas (mode image).
+  useEffect(() => {
+    onPreviewRect(fill === "image" ? imageRect : null);
+    return () => onPreviewRect(null);
+  }, [fill, imageRect, onPreviewRect]);
+
+  const clamped =
+    !!natural && fill === "image" && !!imageRect &&
+    (imageRect.w !== Math.max(1, Math.round(natural.w / divisor)) ||
+      imageRect.h !== Math.max(1, Math.round(natural.h / divisor)));
+
+  // ---- Chargement image ----------------------------------------------------
   useEffect(() => {
     if (!file) {
       setImgEl(null);
@@ -122,7 +108,6 @@ export default function BuyPanel({
     img.onload = () => {
       setImgEl(img);
       setNatural({ w: img.naturalWidth, h: img.naturalHeight });
-      // Choisit un diviseur de départ pour que l'image tienne dans la grille.
       const maxSide = Math.max(img.naturalWidth, img.naturalHeight);
       setDivisor(maxSide > MAX_BLOCK_SIDE ? Math.ceil(maxSide / 400) : 1);
     };
@@ -130,7 +115,6 @@ export default function BuyPanel({
     return () => URL.revokeObjectURL(url);
   }, [file]);
 
-  // Construit un canvas downsamplé (image -> pixels) aux dimensions cibles.
   const buildPixelCanvas = useCallback(
     (w: number, h: number): HTMLCanvasElement | null => {
       if (!imgEl) return null;
@@ -146,20 +130,19 @@ export default function BuyPanel({
     [imgEl],
   );
 
-  // Aperçu pixelisé en direct.
   useEffect(() => {
-    if (fill !== "image" || !imgEl) return;
-    const small = buildPixelCanvas(target.w, target.h);
+    if (fill !== "image" || !imgEl || !imageRect) return;
+    const small = buildPixelCanvas(imageRect.w, imageRect.h);
     const dst = previewCanvasRef.current;
     if (!small || !dst) return;
-    dst.width = target.w;
-    dst.height = target.h;
+    dst.width = imageRect.w;
+    dst.height = imageRect.h;
     const ctx = dst.getContext("2d");
     if (!ctx) return;
     ctx.imageSmoothingEnabled = false;
-    ctx.clearRect(0, 0, target.w, target.h);
+    ctx.clearRect(0, 0, imageRect.w, imageRect.h);
     ctx.drawImage(small, 0, 0);
-  }, [fill, imgEl, target.w, target.h, buildPixelCanvas]);
+  }, [fill, imgEl, imageRect, buildPixelCanvas]);
 
   function canvasToBlob(c: HTMLCanvasElement): Promise<Blob> {
     return new Promise((resolve, reject) => {
@@ -170,34 +153,31 @@ export default function BuyPanel({
     });
   }
 
-  // ---- Paiement -----------------------------------------------------------
+  // ---- Paiement ------------------------------------------------------------
   async function handlePay() {
     setError(null);
-    if (closed) {
-      setError("L'œuvre est clôturée : le canvas est figé.");
-      return;
-    }
-    if (!free) {
-      setError("Cette zone contient déjà des pixels. Choisissez-en une autre.");
-      return;
-    }
+    if (closed) return setError("L'œuvre est clôturée : le canvas est figé.");
+    if (!free) return setError("Cette zone contient déjà des pixels. Choisissez-en une autre.");
     if (!user) {
       toast.info("Connectez-vous pour finaliser votre achat.");
       await signInWithGoogle();
       return;
     }
-    if (fill === "image" && !imgEl) {
-      setError("Importez une image.");
-      return;
-    }
+    if (fill === "image" && !imgEl) return setError("Importez une image.");
+
+    // Liste des rectangles à acheter.
+    const rects: Selection[] =
+      fill === "image"
+        ? imageRect ? [imageRect] : []
+        : decomposeCellsToRects(cells);
+    if (rects.length === 0) return setError("Sélection vide.");
 
     setLoading(true);
     try {
       let imageUrl: string | undefined;
-      if (fill === "image") {
+      if (fill === "image" && imageRect) {
         if (!storage) throw new Error("Stockage indisponible (Firebase non configuré).");
-        // On upload l'image DÉJÀ pixelisée aux dimensions exactes du bloc.
-        const c = buildPixelCanvas(target.w, target.h);
+        const c = buildPixelCanvas(imageRect.w, imageRect.h);
         if (!c) throw new Error("Génération de l'image échouée.");
         const blob = await canvasToBlob(c);
         const path = `pixels/${user.uid}/${Date.now()}.png`;
@@ -212,7 +192,7 @@ export default function BuyPanel({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           idToken,
-          selection: target,
+          rects,
           fill,
           color: fill === "color" ? color : undefined,
           imageUrl,
@@ -237,13 +217,13 @@ export default function BuyPanel({
     }
   }
 
-  // Taille d'affichage de l'aperçu (upscale net, image-rendering pixelated).
   const previewBox = useMemo(() => {
     const maxPx = 200;
-    const ratio = target.w / target.h;
+    if (!imageRect) return { w: maxPx, h: maxPx };
+    const ratio = imageRect.w / imageRect.h;
     if (ratio >= 1) return { w: maxPx, h: Math.round(maxPx / ratio) };
     return { w: Math.round(maxPx * ratio), h: maxPx };
-  }, [target.w, target.h]);
+  }, [imageRect]);
 
   return (
     <>
@@ -255,7 +235,10 @@ export default function BuyPanel({
           <div>
             <div className="text-[15px] font-semibold">Acheter ces pixels</div>
             <div className="text-[12px] text-black/40 mt-0.5">
-              {formatNumber(pixels)} pixels · {target.w} × {target.h} · en ({target.x}, {target.y})
+              {formatNumber(pixels)} pixel{pixels > 1 ? "s" : ""}
+              {fill === "image" && imageRect
+                ? ` · ${imageRect.w} × ${imageRect.h}`
+                : " · forme libre"}
             </div>
           </div>
           <button
@@ -269,14 +252,16 @@ export default function BuyPanel({
           </button>
         </div>
 
-        <div className="px-5 py-4 overflow-y-auto space-y-4">
+        <div className="px-5 py-4 overflow-y-auto space-y-4 scrollbar-thin">
           {!free && (
             <div className="text-[12px] text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2">
-              Cette zone est déjà occupée. Déplacez ou réduisez votre bloc.
+              {fill === "image"
+                ? "L'image chevauche des pixels déjà pris. Déplacez ou réduisez-la."
+                : "Une partie de la sélection est déjà prise. Utilisez la gomme."}
             </div>
           )}
 
-          {/* Choix couleur / image */}
+          {/* Contenu */}
           <div>
             <label className="block text-[11px] font-semibold text-black/35 uppercase tracking-wider mb-2">
               Contenu
@@ -297,37 +282,9 @@ export default function BuyPanel({
                 </button>
               ))}
             </div>
-          </div>
-
-          {/* Position & taille précises */}
-          <div>
-            <label className="block text-[11px] font-semibold text-black/35 uppercase tracking-wider mb-2">
-              Position &amp; taille
-            </label>
-            <div className="grid grid-cols-4 gap-2">
-              {([
-                ["x", "X", original.x],
-                ["y", "Y", original.y],
-                ["w", "Largeur", original.w],
-                ["h", "Hauteur", original.h],
-              ] as const).map(([key, lbl, val]) => (
-                <label key={key} className="block">
-                  <span className="block text-[10px] text-black/35 mb-1">{lbl}</span>
-                  <input
-                    type="number"
-                    min={key === "w" || key === "h" ? 1 : 0}
-                    max={GRID_SIZE}
-                    value={val}
-                    disabled={fill === "image" && (key === "w" || key === "h")}
-                    onChange={(e) => setField(key, Number(e.target.value))}
-                    className="w-full bg-black/[0.02] border border-black/[0.06] rounded-lg px-2 py-2 text-[13px] tabular-nums focus:outline-none focus:border-accent/40 disabled:opacity-40 transition-colors"
-                  />
-                </label>
-              ))}
-            </div>
             {fill === "image" && (
               <p className="text-[11px] text-black/30 mt-1.5">
-                La taille en mode image est définie par le diviseur ci-dessous.
+                L&apos;image se place au coin haut-gauche de votre sélection.
               </p>
             )}
           </div>
@@ -355,22 +312,15 @@ export default function BuyPanel({
             </div>
           ) : (
             <div className="space-y-4">
-              {/* Import */}
               <label className="block border-2 border-dashed border-black/10 rounded-2xl p-5 text-center bg-black/[0.01] cursor-pointer hover:border-black/20 transition-colors">
                 {imgEl ? (
                   <div className="flex flex-col items-center gap-2">
                     <canvas
                       ref={previewCanvasRef}
                       className="rounded-lg border border-black/10"
-                      style={{
-                        width: previewBox.w,
-                        height: previewBox.h,
-                        imageRendering: "pixelated",
-                      }}
+                      style={{ width: previewBox.w, height: previewBox.h, imageRendering: "pixelated" }}
                     />
-                    <span className="text-[11px] text-black/35">
-                      Aperçu pixelisé · cliquez pour changer
-                    </span>
+                    <span className="text-[11px] text-black/35">Aperçu pixelisé · cliquez pour changer</span>
                   </div>
                 ) : (
                   <div className="text-[13px] text-black/40">
@@ -378,22 +328,15 @@ export default function BuyPanel({
                     <div className="text-[11px] text-black/25 mt-1">PNG, JPG, GIF, SVG</div>
                   </div>
                 )}
-                <input
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={(e) => setFile(e.target.files?.[0] || null)}
-                />
+                <input type="file" accept="image/*" className="hidden" onChange={(e) => setFile(e.target.files?.[0] || null)} />
               </label>
 
-              {/* Contrôle de taille */}
-              {natural && (
+              {natural && imageRect && (
                 <div className="bg-black/[0.02] border border-black/[0.06] rounded-xl p-3.5 space-y-3">
                   <div className="flex items-center justify-between text-[12px]">
-                    <span className="text-black/40">Image d'origine</span>
+                    <span className="text-black/40">Image d&apos;origine</span>
                     <span className="font-medium">{natural.w} × {natural.h} px</span>
                   </div>
-
                   <div className="flex items-center gap-1">
                     {[1, 2, 4, 8].map((d) => (
                       <button
@@ -401,35 +344,25 @@ export default function BuyPanel({
                         onClick={() => setDivisor(d)}
                         className={
                           "flex-1 py-1.5 rounded-lg text-[12px] font-medium border transition-all " +
-                          (divisor === d
-                            ? "bg-accent border-accent text-white"
-                            : "bg-white border-black/[0.08] text-black/50 hover:border-black/20")
+                          (divisor === d ? "bg-accent border-accent text-white" : "bg-white border-black/[0.08] text-black/50 hover:border-black/20")
                         }
                       >
                         {d === 1 ? "Réelle" : `÷${d}`}
                       </button>
                     ))}
                   </div>
-
                   <div className="flex items-center gap-3">
                     <span className="text-[11px] text-black/40 shrink-0">Diviser ÷{divisor}</span>
                     <input
-                      type="range"
-                      min={1}
-                      max={32}
-                      value={divisor}
+                      type="range" min={1} max={32} value={divisor}
                       onChange={(e) => setDivisor(Number(e.target.value))}
                       className="flex-1 accent-accent"
                     />
                   </div>
-
                   <div className="flex items-center justify-between text-[12px] pt-1 border-t border-black/[0.06]">
                     <span className="text-black/40">Taille finale</span>
-                    <span className="font-semibold">
-                      {target.w} × {target.h} cellules
-                    </span>
+                    <span className="font-semibold">{imageRect.w} × {imageRect.h} cellules</span>
                   </div>
-
                   {clamped && (
                     <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-2.5 py-1.5">
                       Image rognée pour tenir dans la grille (max {GRID_SIZE}). Augmentez le diviseur.
@@ -446,11 +379,9 @@ export default function BuyPanel({
               Lien (optionnel)
             </label>
             <input
-              type="url"
-              value={link}
-              onChange={(e) => setLink(e.target.value)}
+              type="url" value={link} onChange={(e) => setLink(e.target.value)}
               placeholder="https://votre-site.fr"
-              className="w-full bg-black/[0.02] border border-black/[0.06] rounded-xl px-3.5 py-3 text-[13px] focus:outline-none focus:border-black/20 transition-colors"
+              className="w-full bg-black/[0.02] border border-black/[0.06] rounded-xl px-3.5 py-3 text-[13px] focus:outline-none focus:border-accent/40 transition-colors"
             />
           </div>
 
@@ -460,12 +391,9 @@ export default function BuyPanel({
               Message (optionnel)
             </label>
             <textarea
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-              rows={2}
-              maxLength={140}
+              value={message} onChange={(e) => setMessage(e.target.value)} rows={2} maxLength={140}
               placeholder="Affiché au survol de vos pixels"
-              className="w-full bg-black/[0.02] border border-black/[0.06] rounded-xl px-3.5 py-3 text-[13px] focus:outline-none focus:border-black/20 resize-none transition-colors"
+              className="w-full bg-black/[0.02] border border-black/[0.06] rounded-xl px-3.5 py-3 text-[13px] focus:outline-none focus:border-accent/40 resize-none transition-colors"
             />
           </div>
 
@@ -475,22 +403,19 @@ export default function BuyPanel({
             </div>
           )}
 
-          {closed && (
-            <div className="text-[12px] text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2">
-              L&apos;œuvre est clôturée : le canvas est désormais figé.
-            </div>
-          )}
-
           {!configured && !closed && (
             <div className="text-[12px] text-amber-700 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
               Mode démo : connectez Firebase pour activer l&apos;achat.
             </div>
           )}
-
           {configured && !stripeReady && !closed && (
             <div className="text-[12px] text-indigo-700 bg-accent-soft border border-accent/15 rounded-xl px-3 py-2">
-              Mode test : l&apos;achat est simulé (aucun paiement). Toutes les
-              données seront bien créées en base.
+              Mode test : l&apos;achat est simulé (aucun paiement). Toutes les données seront bien créées en base.
+            </div>
+          )}
+          {closed && (
+            <div className="text-[12px] text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2">
+              L&apos;œuvre est clôturée : le canvas est désormais figé.
             </div>
           )}
         </div>
@@ -503,7 +428,7 @@ export default function BuyPanel({
             </span>
             <span className="text-[22px] font-bold">{formatEUR(totalPrice)}</span>
           </div>
-          <Button onClick={handlePay} loading={loading} disabled={!free || closed} fullWidth className="py-4 rounded-2xl text-[15px]">
+          <Button onClick={handlePay} loading={loading} disabled={!free || closed || pixels === 0} fullWidth className="py-4 rounded-2xl text-[15px]">
             {closed ? (
               "Œuvre clôturée"
             ) : loading ? (

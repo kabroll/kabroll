@@ -1,42 +1,43 @@
 "use client";
 
 // Canvas interactif 1000x1000.
-// - Molette : zoom centré sur le curseur
-// - Pinch (2 doigts) : zoom mobile
-// - Outil "Déplacer" : pan (glisser)
-// - Outil "Sélectionner" : tracer un rectangle de pixels à acheter
-// - Double-clic / double-tap : zoom rapide
-// Rendu des blocs (couleur / image), halo sur les blocs en vente, minimap,
-// survol/tooltip, lecture des coordonnées en direct.
+// Outils (barre du bas) :
+//   - Sélection : peint des cellules libres (clic ou glisser), une par une
+//   - Mouvement : déplace la vue (pan)
+//   - Gomme     : retire des cellules de la sélection
+// Zoom molette + pinch (2 doigts) + double-tap. Minimap, halo "à vendre".
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { GRID_SIZE } from "@/lib/constants";
 import type { PixelBlock, Selection } from "@/lib/types";
-import { isSelectionFree, selectionFromCorners } from "@/lib/geometry";
+import { cellKey, isCellFree, parseCellKey } from "@/lib/geometry";
 
-type Tool = "move" | "select";
+type Tool = "select" | "move" | "erase";
 const ACCENT = "#4f46e5";
 
 interface View {
-  scale: number; // pixels écran par cellule
-  ox: number; // position écran (px) de la cellule x=0
+  scale: number;
+  ox: number;
   oy: number;
 }
 
 interface Props {
   blocks: PixelBlock[];
-  selection: Selection | null;
-  onSelectionChange: (sel: Selection | null) => void;
+  /** Cellules sélectionnées (clé "x,y"). */
+  cells: Set<string>;
+  onCellsChange: (cells: Set<string>) => void;
   onBlockClick?: (block: PixelBlock) => void;
-  /** Cellule à recentrer (depuis le marketplace, par ex.). */
+  /** Rectangle d'aperçu (mode image) dessiné en plus des cellules. */
+  previewRect?: Selection | null;
   focusCell?: { x: number; y: number; w: number; h: number } | null;
 }
 
 export default function PixelCanvas({
   blocks,
-  selection,
-  onSelectionChange,
+  cells,
+  onCellsChange,
   onBlockClick,
+  previewRect,
   focusCell,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -44,31 +45,31 @@ export default function PixelCanvas({
   const miniRef = useRef<HTMLCanvasElement>(null);
 
   const viewRef = useRef<View>({ scale: 0.5, ox: 0, oy: 0 });
-  const draftRef = useRef<Selection | null>(null);
   const blocksRef = useRef<PixelBlock[]>(blocks);
-  const selectionRef = useRef<Selection | null>(selection);
+  const cellsRef = useRef<Set<string>>(new Set(cells));
+  const previewRef = useRef<Selection | null>(previewRect ?? null);
   const imageCache = useRef<Map<string, HTMLImageElement>>(new Map());
 
   const [tool, setTool] = useState<Tool>("select");
   const toolRef = useRef<Tool>(tool);
   const [hover, setHover] = useState<{ block: PixelBlock; sx: number; sy: number } | null>(null);
   const [coords, setCoords] = useState<{ x: number; y: number } | null>(null);
+  const [count, setCount] = useState(cells.size);
   const [zoomLabel, setZoomLabel] = useState(1);
 
-  // Multi-touch (pinch) : suivi des pointeurs actifs.
   const pointers = useRef<Map<number, { x: number; y: number }>>(new Map());
   const pinch = useRef<{ dist: number; cx: number; cy: number } | null>(null);
   const lastTap = useRef<number>(0);
 
-  const dragging = useRef<{
-    mode: "pan" | "select";
-    startSX: number;
-    startSY: number;
+  // Geste de peinture / pan en cours.
+  const gesture = useRef<{
+    mode: "paint" | "erase" | "pan";
     startOX: number;
     startOY: number;
-    startCellX: number;
-    startCellY: number;
+    startSX: number;
+    startSY: number;
     moved: boolean;
+    tapBlock: PixelBlock | null;
   } | null>(null);
 
   // ---- Sync props -> refs ---------------------------------------------------
@@ -87,9 +88,15 @@ export default function PixelCanvas({
   }, [blocks]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    selectionRef.current = selection;
+    cellsRef.current = new Set(cells);
+    setCount(cells.size);
     draw();
-  }, [selection]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [cells]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    previewRef.current = previewRect ?? null;
+    draw();
+  }, [previewRect]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     toolRef.current = tool;
@@ -104,7 +111,7 @@ export default function PixelCanvas({
     };
   }, []);
 
-  // ---- Rendu minimap --------------------------------------------------------
+  // ---- Minimap --------------------------------------------------------------
   const drawMini = useCallback(() => {
     const mini = miniRef.current;
     const container = containerRef.current;
@@ -128,21 +135,16 @@ export default function PixelCanvas({
       ctx.fillStyle = b.fill === "color" ? b.color || "#111" : "#9ca3af";
       ctx.fillRect(b.x * k, b.y * k, Math.max(1, b.w * k), Math.max(1, b.h * k));
     }
-    // Cadre du viewport actuel.
     const v = viewRef.current;
     const cw = container.clientWidth;
     const ch = container.clientHeight;
-    const vx = (-v.ox / v.scale) * k;
-    const vy = (-v.oy / v.scale) * k;
-    const vw = (cw / v.scale) * k;
-    const vh = (ch / v.scale) * k;
     ctx.strokeStyle = ACCENT;
     ctx.lineWidth = 1.5;
     ctx.strokeRect(
-      Math.max(0, vx),
-      Math.max(0, vy),
-      Math.min(size, vw),
-      Math.min(size, vh),
+      Math.max(0, (-v.ox / v.scale) * k),
+      Math.max(0, (-v.oy / v.scale) * k),
+      Math.min(size, (cw / v.scale) * k),
+      Math.min(size, (ch / v.scale) * k),
     );
   }, []);
 
@@ -171,18 +173,15 @@ export default function PixelCanvas({
     const v = viewRef.current;
     setZoomLabel(v.scale);
 
-    // Fond hors-grille
     ctx.fillStyle = "#f4f4f5";
     ctx.fillRect(0, 0, cw, ch);
 
-    // Zone grille (blanche)
     const gx = v.ox;
     const gy = v.oy;
     const gpx = GRID_SIZE * v.scale;
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(gx, gy, gpx, gpx);
 
-    // Blocs
     const now = Date.now();
     for (const b of blocksRef.current) {
       if (b.status === "pending" && b.expiresAt && b.expiresAt < now) continue;
@@ -208,8 +207,6 @@ export default function PixelCanvas({
         ctx.fillStyle = "rgba(255,255,255,0.5)";
         ctx.fillRect(bx, by, bw, bh);
       }
-
-      // Halo vert sur les blocs en vente.
       if (b.status === "active" && b.forSale) {
         ctx.strokeStyle = "#16a34a";
         ctx.lineWidth = 2;
@@ -217,7 +214,7 @@ export default function PixelCanvas({
       }
     }
 
-    // Grille fine si suffisamment zoomé
+    // Grille fine si zoomé.
     if (v.scale >= 6) {
       ctx.strokeStyle = "rgba(0,0,0,0.06)";
       ctx.lineWidth = 1;
@@ -239,24 +236,25 @@ export default function PixelCanvas({
       ctx.stroke();
     }
 
-    // Bordure de la grille
     ctx.strokeStyle = "rgba(0,0,0,0.12)";
     ctx.lineWidth = 1;
     ctx.strokeRect(gx + 0.5, gy + 0.5, gpx, gpx);
 
-    // Sélection
-    const sel = draftRef.current || selectionRef.current;
-    if (sel) {
-      const free = isSelectionFree(sel, blocksRef.current, now);
-      const sxp = v.ox + sel.x * v.scale;
-      const syp = v.oy + sel.y * v.scale;
-      const swp = sel.w * v.scale;
-      const shp = sel.h * v.scale;
-      ctx.fillStyle = free ? "rgba(79,70,229,0.16)" : "rgba(220,38,38,0.20)";
-      ctx.fillRect(sxp, syp, swp, shp);
-      ctx.strokeStyle = free ? ACCENT : "#dc2626";
+    // Cellules sélectionnées.
+    ctx.fillStyle = "rgba(79,70,229,0.30)";
+    for (const k of cellsRef.current) {
+      const { x, y } = parseCellKey(k);
+      ctx.fillRect(v.ox + x * v.scale, v.oy + y * v.scale, v.scale, v.scale);
+    }
+
+    // Rectangle d'aperçu (mode image).
+    const pr = previewRef.current;
+    if (pr) {
+      ctx.fillStyle = "rgba(79,70,229,0.14)";
+      ctx.fillRect(v.ox + pr.x * v.scale, v.oy + pr.y * v.scale, pr.w * v.scale, pr.h * v.scale);
+      ctx.strokeStyle = ACCENT;
       ctx.lineWidth = 2;
-      ctx.strokeRect(sxp, syp, swp, shp);
+      ctx.strokeRect(v.ox + pr.x * v.scale, v.oy + pr.y * v.scale, pr.w * v.scale, pr.h * v.scale);
     }
 
     drawMini();
@@ -278,12 +276,10 @@ export default function PixelCanvas({
     (cx: number, cy: number, targetScale?: number) => {
       const container = containerRef.current;
       if (!container) return;
-      const cw = container.clientWidth;
-      const ch = container.clientHeight;
       const v = viewRef.current;
       if (targetScale) v.scale = Math.max(0.05, Math.min(40, targetScale));
-      v.ox = cw / 2 - cx * v.scale;
-      v.oy = ch / 2 - cy * v.scale;
+      v.ox = container.clientWidth / 2 - cx * v.scale;
+      v.oy = container.clientHeight / 2 - cy * v.scale;
       draw();
     },
     [draw],
@@ -296,7 +292,6 @@ export default function PixelCanvas({
     return () => window.removeEventListener("resize", onResize);
   }, [fitToScreen, draw]);
 
-  // Recentre sur une cible externe (depuis le marketplace).
   useEffect(() => {
     if (focusCell) {
       centerOn(
@@ -326,13 +321,31 @@ export default function PixelCanvas({
     (e: React.WheelEvent) => {
       e.preventDefault();
       const rect = canvasRef.current!.getBoundingClientRect();
-      const sx = e.clientX - rect.left;
-      const sy = e.clientY - rect.top;
       const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
-      zoomAt(sx, sy, factor);
+      zoomAt(e.clientX - rect.left, e.clientY - rect.top, factor);
     },
     [zoomAt],
   );
+
+  // ---- Peinture -------------------------------------------------------------
+  const paintAt = (sx: number, sy: number, erase: boolean) => {
+    const { cx, cy } = screenToCell(sx, sy);
+    if (cx < 0 || cy < 0 || cx >= GRID_SIZE || cy >= GRID_SIZE) return;
+    const key = cellKey(cx, cy);
+    const set = cellsRef.current;
+    if (erase) {
+      if (set.has(key)) {
+        set.delete(key);
+        draw();
+      }
+      return;
+    }
+    // Sélection : on n'ajoute que des cellules LIBRES.
+    if (!set.has(key) && isCellFree(cx, cy, blocksRef.current)) {
+      set.add(key);
+      draw();
+    }
+  };
 
   // ---- Pointer / multi-touch ------------------------------------------------
   const getXY = (e: React.PointerEvent) => {
@@ -345,23 +358,19 @@ export default function PixelCanvas({
     const { sx, sy } = getXY(e);
     pointers.current.set(e.pointerId, { x: sx, y: sy });
 
-    // Deux doigts -> démarre un pinch, annule tout drag.
     if (pointers.current.size === 2) {
       const pts = Array.from(pointers.current.values());
-      const dx = pts[0].x - pts[1].x;
-      const dy = pts[0].y - pts[1].y;
       pinch.current = {
-        dist: Math.hypot(dx, dy),
+        dist: Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y),
         cx: (pts[0].x + pts[1].x) / 2,
         cy: (pts[0].y + pts[1].y) / 2,
       };
-      dragging.current = null;
-      draftRef.current = null;
+      gesture.current = null;
       draw();
       return;
     }
 
-    // Double-tap / double-clic -> zoom.
+    // Double-tap -> zoom.
     const now = Date.now();
     if (now - lastTap.current < 300) {
       zoomAt(sx, sy, 1.8);
@@ -371,22 +380,32 @@ export default function PixelCanvas({
     lastTap.current = now;
 
     const v = viewRef.current;
-    const panMode = toolRef.current === "move" || e.button === 1 || e.button === 2;
-    if (panMode) {
-      dragging.current = {
-        mode: "pan",
-        startSX: sx, startSY: sy, startOX: v.ox, startOY: v.oy,
-        startCellX: 0, startCellY: 0, moved: false,
+    const t = toolRef.current;
+    const pan = t === "move" || e.button === 1 || e.button === 2;
+
+    if (pan) {
+      gesture.current = {
+        mode: "pan", startOX: v.ox, startOY: v.oy, startSX: sx, startSY: sy,
+        moved: false, tapBlock: null,
       };
-    } else {
-      const { cx, cy } = screenToCell(sx, sy);
-      dragging.current = {
-        mode: "select",
-        startSX: sx, startSY: sy, startOX: v.ox, startOY: v.oy,
-        startCellX: cx, startCellY: cy, moved: false,
-      };
-      draftRef.current = selectionFromCorners(cx, cy, cx, cy);
-      draw();
+      return;
+    }
+
+    // Sélection / gomme : repère un éventuel bloc actif sous le curseur.
+    const { cx, cy } = screenToCell(sx, sy);
+    const hit = blocksRef.current.find(
+      (b) => b.status === "active" && cx >= b.x && cx < b.x + b.w && cy >= b.y && cy < b.y + b.h,
+    ) || null;
+
+    gesture.current = {
+      mode: t === "erase" ? "erase" : "paint",
+      startOX: v.ox, startOY: v.oy, startSX: sx, startSY: sy,
+      moved: false, tapBlock: hit,
+    };
+    // Peint immédiatement (sauf si on vise un bloc existant en mode sélection,
+    // pour permettre l'ouverture du détail au simple clic).
+    if (!(t === "select" && hit)) {
+      paintAt(sx, sy, t === "erase");
     }
   };
 
@@ -396,17 +415,12 @@ export default function PixelCanvas({
       pointers.current.set(e.pointerId, { x: sx, y: sy });
     }
 
-    // Pinch en cours.
     if (pinch.current && pointers.current.size >= 2) {
       const pts = Array.from(pointers.current.values());
-      const dx = pts[0].x - pts[1].x;
-      const dy = pts[0].y - pts[1].y;
-      const dist = Math.hypot(dx, dy);
+      const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
       const cx = (pts[0].x + pts[1].x) / 2;
       const cy = (pts[0].y + pts[1].y) / 2;
-      const factor = dist / (pinch.current.dist || dist);
-      zoomAt(cx, cy, factor);
-      // Pan simultané du centre du pinch.
+      zoomAt(cx, cy, dist / (pinch.current.dist || dist));
       const v = viewRef.current;
       v.ox += cx - pinch.current.cx;
       v.oy += cy - pinch.current.cy;
@@ -415,32 +429,30 @@ export default function PixelCanvas({
       return;
     }
 
-    const d = dragging.current;
+    const g = gesture.current;
     const { cx, cy } = screenToCell(sx, sy);
     setCoords(cx >= 0 && cx < GRID_SIZE && cy >= 0 && cy < GRID_SIZE ? { x: cx, y: cy } : null);
 
-    if (!d) {
-      const now = Date.now();
+    if (!g) {
       const found = blocksRef.current.find(
         (b) =>
           b.status === "active" &&
-          cx >= b.x && cx < b.x + b.w &&
-          cy >= b.y && cy < b.y + b.h &&
+          cx >= b.x && cx < b.x + b.w && cy >= b.y && cy < b.y + b.h &&
           (b.message || b.link || b.ownerName || b.forSale),
       );
       setHover(found ? { block: found, sx, sy } : null);
       return;
     }
 
-    d.moved = true;
-    if (d.mode === "pan") {
+    g.moved = true;
+    if (g.mode === "pan") {
       const v = viewRef.current;
-      v.ox = d.startOX + (sx - d.startSX);
-      v.oy = d.startOY + (sy - d.startSY);
+      v.ox = g.startOX + (sx - g.startSX);
+      v.oy = g.startOY + (sy - g.startSY);
       draw();
     } else {
-      draftRef.current = selectionFromCorners(d.startCellX, d.startCellY, cx, cy);
-      draw();
+      g.tapBlock = null; // un glissement annule l'ouverture du détail
+      paintAt(sx, sy, g.mode === "erase");
     }
   };
 
@@ -448,28 +460,45 @@ export default function PixelCanvas({
     if (e) pointers.current.delete(e.pointerId);
     if (pointers.current.size < 2) pinch.current = null;
 
-    const d = dragging.current;
-    dragging.current = null;
-    if (d?.mode === "select" && draftRef.current) {
-      const sel = draftRef.current;
-      draftRef.current = null;
-      // Clic simple sur un bloc existant -> ouvre son détail.
-      if (sel.w === 1 && sel.h === 1 && onBlockClick) {
-        const hit = blocksRef.current.find(
-          (b) =>
-            b.status === "active" &&
-            sel.x >= b.x && sel.x < b.x + b.w &&
-            sel.y >= b.y && sel.y < b.y + b.h,
-        );
-        if (hit) {
-          draw();
-          onBlockClick(hit);
-          return;
-        }
-      }
-      onSelectionChange(sel);
+    const g = gesture.current;
+    gesture.current = null;
+    if (!g) return;
+
+    // Simple clic sur un bloc existant -> ouvre le détail.
+    if (g.mode !== "pan" && !g.moved && g.tapBlock && onBlockClick) {
+      onBlockClick(g.tapBlock);
+      return;
+    }
+
+    // Commit de la sélection au parent.
+    if (g.mode === "paint" || g.mode === "erase") {
+      onCellsChange(new Set(cellsRef.current));
     }
   };
+
+  const TOOLS: { id: Tool; label: string; icon: React.ReactNode }[] = [
+    {
+      id: "select",
+      label: "Sélection",
+      icon: (
+        <path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2m14 0a2 2 0 012 2M5 21a2 2 0 01-2-2m18 0a2 2 0 01-2 2M9 3h6M9 21h6M3 9v6m18-6v6" />
+      ),
+    },
+    {
+      id: "move",
+      label: "Mouvement",
+      icon: (
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v18M3 12h18M8 7l4-4 4 4M8 17l4 4 4-4M7 8l-4 4 4 4M17 8l4 4-4 4" />
+      ),
+    },
+    {
+      id: "erase",
+      label: "Gomme",
+      icon: (
+        <path strokeLinecap="round" strokeLinejoin="round" d="M16 3l5 5L10 19H5l-2-2a2 2 0 010-3L13 4M8 21h12" />
+      ),
+    },
+  ];
 
   // ---- UI -------------------------------------------------------------------
   return (
@@ -487,27 +516,19 @@ export default function PixelCanvas({
         onPointerLeave={(e) => {
           setHover(null);
           setCoords(null);
-          if (dragging.current) finishPointer(e);
+          if (gesture.current) finishPointer(e);
         }}
         onContextMenu={(e) => e.preventDefault()}
-        className={tool === "move" ? "cursor-grab active:cursor-grabbing" : "cursor-crosshair"}
+        className={
+          tool === "move"
+            ? "cursor-grab active:cursor-grabbing"
+            : tool === "erase"
+              ? "cursor-cell"
+              : "cursor-crosshair"
+        }
       />
 
-      {/* Barre d'outils */}
-      <div className="absolute top-3 left-3 flex items-center gap-1 bg-white/95 backdrop-blur rounded-xl shadow-sm border border-black/[0.06] p-1 animate-fade-in">
-        <ToolButton active={tool === "select"} onClick={() => setTool("select")} label="Sélectionner (S)">
-          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2m14 0a2 2 0 012 2M5 21a2 2 0 01-2-2m18 0a2 2 0 01-2 2M9 3h2m2 0h2M3 9v2m0 2v2m18-6v2m0 2v2M9 21h2m2 0h2" />
-          </svg>
-        </ToolButton>
-        <ToolButton active={tool === "move"} onClick={() => setTool("move")} label="Déplacer (M)">
-          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v18M3 12h18M8 7l4-4 4 4M8 17l4 4 4-4M7 8l-4 4 4 4M17 8l4 4-4 4" />
-          </svg>
-        </ToolButton>
-      </div>
-
-      {/* Lecture des coordonnées + zoom */}
+      {/* Lecture coords + zoom */}
       <div className="absolute top-3 right-3 flex items-center gap-2 animate-fade-in">
         {coords && (
           <div className="bg-white/95 backdrop-blur border border-black/[0.06] rounded-lg shadow-sm px-2.5 py-1.5 text-[11px] font-mono text-black/60 tabular-nums">
@@ -515,43 +536,34 @@ export default function PixelCanvas({
           </div>
         )}
         <div className="bg-white/95 backdrop-blur border border-black/[0.06] rounded-lg shadow-sm px-2.5 py-1.5 text-[11px] font-medium text-black/50 tabular-nums">
-          {Math.round(zoomLabel * 100) >= 100
-            ? `${Math.round(zoomLabel)}×`
-            : `${Math.round(zoomLabel * 100)}%`}
+          {Math.round(zoomLabel * 100) >= 100 ? `${Math.round(zoomLabel)}×` : `${Math.round(zoomLabel * 100)}%`}
         </div>
       </div>
 
+      {/* Compteur de cellules sélectionnées */}
+      {count > 0 && (
+        <div className="absolute top-3 left-3 bg-accent text-white rounded-lg shadow-sm px-2.5 py-1.5 text-[11px] font-semibold tabular-nums animate-fade-in">
+          {count} pixel{count > 1 ? "s" : ""} sélectionné{count > 1 ? "s" : ""}
+        </div>
+      )}
+
       {/* Minimap */}
-      <div className="absolute bottom-3 left-3 bg-white/95 backdrop-blur rounded-xl shadow-sm border border-black/[0.06] p-1.5 animate-fade-in hidden sm:block">
-        <canvas
-          ref={miniRef}
-          style={{ width: 96, height: 96 }}
-          className="rounded-md border border-black/[0.06]"
-        />
+      <div className="absolute bottom-16 left-3 bg-white/95 backdrop-blur rounded-xl shadow-sm border border-black/[0.06] p-1.5 animate-fade-in hidden sm:block">
+        <canvas ref={miniRef} style={{ width: 96, height: 96 }} className="rounded-md border border-black/[0.06]" />
       </div>
 
       {/* Contrôles zoom */}
-      <div className="absolute bottom-3 right-3 flex flex-col gap-1 bg-white/95 backdrop-blur rounded-xl shadow-sm border border-black/[0.06] p-1 animate-fade-in">
+      <div className="absolute bottom-16 right-3 flex flex-col gap-1 bg-white/95 backdrop-blur rounded-xl shadow-sm border border-black/[0.06] p-1 animate-fade-in">
         <button
-          onClick={() => {
-            const c = containerRef.current!;
-            zoomAt(c.clientWidth / 2, c.clientHeight / 2, 1.4);
-          }}
+          onClick={() => { const c = containerRef.current!; zoomAt(c.clientWidth / 2, c.clientHeight / 2, 1.4); }}
           className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-black/[0.05] text-lg font-semibold focus-visible:ring-2 focus-visible:ring-accent/40"
           aria-label="Zoomer"
-        >
-          +
-        </button>
+        >+</button>
         <button
-          onClick={() => {
-            const c = containerRef.current!;
-            zoomAt(c.clientWidth / 2, c.clientHeight / 2, 1 / 1.4);
-          }}
+          onClick={() => { const c = containerRef.current!; zoomAt(c.clientWidth / 2, c.clientHeight / 2, 1 / 1.4); }}
           className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-black/[0.05] text-lg font-semibold focus-visible:ring-2 focus-visible:ring-accent/40"
           aria-label="Dézoomer"
-        >
-          −
-        </button>
+        >−</button>
         <button
           onClick={fitToScreen}
           className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-black/[0.05] focus-visible:ring-2 focus-visible:ring-accent/40"
@@ -563,53 +575,58 @@ export default function PixelCanvas({
         </button>
       </div>
 
+      {/* Barre d'outils (en bas, centrée) */}
+      <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-1 bg-white/95 backdrop-blur rounded-2xl shadow-lg border border-black/[0.06] p-1.5 animate-fade-in">
+        {TOOLS.map((t) => (
+          <button
+            key={t.id}
+            onClick={() => setTool(t.id)}
+            title={t.label}
+            aria-label={t.label}
+            aria-pressed={tool === t.id}
+            className={
+              "flex flex-col items-center justify-center gap-0.5 w-16 h-12 rounded-xl transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 " +
+              (tool === t.id ? "bg-accent text-white" : "text-black/55 hover:bg-black/[0.05]")
+            }
+          >
+            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              {t.icon}
+            </svg>
+            <span className="text-[10px] font-medium">{t.label}</span>
+          </button>
+        ))}
+        {count > 0 && (
+          <>
+            <span className="w-px h-8 bg-black/10 mx-0.5" />
+            <button
+              onClick={() => onCellsChange(new Set())}
+              title="Tout effacer"
+              aria-label="Tout effacer"
+              className="flex flex-col items-center justify-center gap-0.5 w-16 h-12 rounded-xl text-black/55 hover:bg-red-50 hover:text-red-600 transition-colors"
+            >
+              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 7h12M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-7 4v6m4-6v6M5 7l1 13a1 1 0 001 1h10a1 1 0 001-1l1-13" />
+              </svg>
+              <span className="text-[10px] font-medium">Effacer</span>
+            </button>
+          </>
+        )}
+      </div>
+
       {/* Tooltip survol */}
       {hover && (
         <div
           className="pointer-events-none absolute z-20 max-w-[220px] bg-black text-white text-[12px] rounded-lg px-3 py-2 shadow-lg animate-fade-in"
           style={{ left: hover.sx + 12, top: hover.sy + 12 }}
         >
-          {hover.block.ownerName && (
-            <div className="font-semibold">{hover.block.ownerName}</div>
-          )}
-          {hover.block.message && (
-            <div className="text-white/70">{hover.block.message}</div>
-          )}
+          {hover.block.ownerName && <div className="font-semibold">{hover.block.ownerName}</div>}
+          {hover.block.message && <div className="text-white/70">{hover.block.message}</div>}
           {hover.block.forSale && hover.block.salePrice != null && (
             <div className="text-green-300 font-medium mt-0.5">À vendre · {hover.block.salePrice} €</div>
           )}
-          {hover.block.link && (
-            <div className="text-indigo-300 truncate">{hover.block.link}</div>
-          )}
+          {hover.block.link && <div className="text-indigo-300 truncate">{hover.block.link}</div>}
         </div>
       )}
     </div>
-  );
-}
-
-function ToolButton({
-  active,
-  onClick,
-  label,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      title={label}
-      aria-label={label}
-      aria-pressed={active}
-      className={
-        "w-9 h-9 flex items-center justify-center rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-accent/40 " +
-        (active ? "bg-black text-white" : "text-black/50 hover:bg-black/[0.05]")
-      }
-    >
-      {children}
-    </button>
   );
 }

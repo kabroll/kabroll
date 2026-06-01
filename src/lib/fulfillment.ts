@@ -21,6 +21,16 @@ interface PurchaseParams {
   amount: number;
 }
 
+interface PurchaseGroupParams {
+  /** Tous les blocs d'un même achat (forme libre décomposée en rectangles). */
+  blockIds: string[];
+  uid: string;
+  /** Total des pixels de l'achat. */
+  pixels: number;
+  /** Montant payé, en euros. */
+  amount: number;
+}
+
 interface ResaleParams {
   blockId: string;
   buyerUid: string;
@@ -48,6 +58,40 @@ export async function fulfillPurchase(
         totalPixels: FieldValue.increment(pixels),
         totalSpent: FieldValue.increment(amount),
         totalBlocks: FieldValue.increment(1),
+        updatedAt: Date.now(),
+      },
+      { merge: true },
+    );
+  }
+}
+
+/**
+ * Active tous les blocs d'un achat (un par rectangle) + un seul incrément
+ * d'agrégat utilisateur (totalBlocks = nombre de rectangles).
+ */
+export async function fulfillPurchaseGroup(
+  params: PurchaseGroupParams,
+  db: Firestore = getAdminDb(),
+): Promise<void> {
+  const { blockIds, uid, pixels, amount } = params;
+  if (!blockIds || blockIds.length === 0) return;
+
+  const batch = db.batch();
+  for (const id of blockIds) {
+    batch.set(
+      db.collection(PIXELS_COLLECTION).doc(id),
+      { status: "active", paidAt: Date.now(), expiresAt: FieldValue.delete() },
+      { merge: true },
+    );
+  }
+  await batch.commit();
+
+  if (uid) {
+    await db.collection(USERS_COLLECTION).doc(uid).set(
+      {
+        totalPixels: FieldValue.increment(pixels),
+        totalSpent: FieldValue.increment(amount),
+        totalBlocks: FieldValue.increment(blockIds.length),
         updatedAt: Date.now(),
       },
       { merge: true },
