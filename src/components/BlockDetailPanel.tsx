@@ -107,8 +107,8 @@ export default function BlockDetailPanel({ block, allBlocks = [], onClose }: Pro
         ? `${window.location.origin}/?block=${block.id}&x=${block.x}&y=${block.y}&w=${block.w}&h=${block.h}`
         : "";
     const shareData = {
-      title: "unmillion.fr",
-      text: `Regarde ce bloc de pixels sur unmillion.fr (${block.w}×${block.h})`,
+      title: "PixelMillions",
+      text: `Regarde ce bloc de pixels sur PixelMillions (${block.w}×${block.h})`,
       url,
     };
     try {

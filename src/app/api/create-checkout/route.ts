@@ -160,8 +160,8 @@ export async function POST(req: Request) {
               unit_amount: amountCents,
               product_data: {
                 name: isGroup
-                  ? `Rachat d'une création unmillion.fr (${groupDocs.length} blocs)`
-                  : `Rachat de pixels unmillion.fr (${block.w}×${block.h})`,
+                  ? `Rachat d'une création PixelMillions (${groupDocs.length} blocs)`
+                  : `Rachat de pixels PixelMillions (${block.w}×${block.h})`,
                 description: `${resalePixels} pixels`,
               },
             },
@@ -300,7 +300,7 @@ export async function POST(req: Request) {
             currency: "eur",
             unit_amount: PRICE_PER_PIXEL_CENTS,
             product_data: {
-              name: `Pixels unmillion.fr`,
+              name: `Pixels PixelMillions`,
               description: `${totalPixels} pixels · ${rects.length} zone${rects.length > 1 ? "s" : ""}`,
             },
           },

@@ -32,7 +32,7 @@ export function GET() {
           ))}
         </div>
         <div style={{ fontSize: 84, fontWeight: 800, letterSpacing: -2 }}>
-          unmillion.fr
+          PixelMillions
         </div>
         <div style={{ fontSize: 34, opacity: 0.85, marginTop: 8 }}>
           1 000 000 de pixels · à vous d&apos;en posséder un

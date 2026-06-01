@@ -48,6 +48,7 @@ export default function BuyPanel({ blocks, onPreviewRect, onClose }: Props) {
   const [groupLabel, setGroupLabel] = useState("");
   const [link, setLink] = useState("");
   const [message, setMessage] = useState("");
+  const [acceptCgv, setAcceptCgv] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -152,6 +153,7 @@ export default function BuyPanel({ blocks, onPreviewRect, onClose }: Props) {
     if (!free) return setError("Une partie de la zone est déjà prise.");
     if (!user) { openAuth(); return; }
     if (mode === "image" && !imgEl) return setError("Importez une image.");
+    if (!acceptCgv) return setError("Veuillez accepter les conditions de vente.");
 
     setLoading(true);
     try {
@@ -212,7 +214,7 @@ export default function BuyPanel({ blocks, onPreviewRect, onClose }: Props) {
     return { w: Math.round(maxPx * ratio), h: maxPx };
   }, [imageRect]);
 
-  const disabled = loading || closed || pixels === 0 || (mode === "draw" && !free);
+  const disabled = loading || closed || pixels === 0 || !acceptCgv || (mode === "draw" && !free);
 
   return (
     <>
@@ -381,6 +383,24 @@ export default function BuyPanel({ blocks, onPreviewRect, onClose }: Props) {
             <span className="text-[13px] text-black/50">{formatNumber(pixels)} × {formatEUR(PRICE_PER_PIXEL_EUR)}</span>
             <span className="text-[22px] font-bold">{formatEUR(totalPrice)}</span>
           </div>
+
+          {/* Acceptation des CGV (obligatoire avant paiement) */}
+          {!closed && (
+            <label className="flex items-start gap-2 mb-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={acceptCgv}
+                onChange={(e) => setAcceptCgv(e.target.checked)}
+                className="mt-0.5 w-4 h-4 accent-accent shrink-0"
+              />
+              <span className="text-[11px] text-black/50 leading-snug">
+                J&apos;accepte les{" "}
+                <a href="/cgv" target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">conditions de vente</a>{" "}
+                et reconnais renoncer à mon droit de rétractation (livraison numérique immédiate).
+              </span>
+            </label>
+          )}
+
           <Button onClick={handlePay} loading={loading} disabled={disabled} fullWidth className="py-4 rounded-2xl text-[15px]">
             {closed ? "Œuvre clôturée"
               : loading ? (stripeReady ? "Redirection…" : "Création…")

@@ -12,7 +12,7 @@ const STORAGE_KEY = "unmillion.onboarded.v1";
 
 const STEPS = [
   {
-    title: "Bienvenue sur unmillion.fr",
+    title: "Bienvenue sur PixelMillions",
     body: `Un canvas géant d'un million de pixels. Achetez votre parcelle et laissez votre marque dans l'histoire d'Internet — ${formatEUR(PRICE_PER_PIXEL_EUR)} le pixel.`,
     icon: (
       <svg className="w-7 h-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">

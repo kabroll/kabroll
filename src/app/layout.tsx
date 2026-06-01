@@ -4,25 +4,26 @@ import { AuthProvider } from "@/components/AuthProvider";
 import { ToastProvider } from "@/components/ToastProvider";
 import Header from "@/components/Header";
 import BottomNav from "@/components/BottomNav";
+import Footer from "@/components/Footer";
 
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://unmillion.fr";
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://pixelmillions.com";
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
-  title: "unmillion.fr — Achetez un pixel de l'histoire d'Internet",
+  title: "PixelMillions — Achetez un pixel de l'histoire d'Internet",
   description:
     "Achetez des pixels sur un canvas d'un million de pixels. Choisissez une couleur ou uploadez une image, revendez-les, faites des offres.",
   openGraph: {
-    title: "unmillion.fr — 1 000 000 de pixels",
+    title: "PixelMillions — 1 000 000 de pixels",
     description: "Achetez votre parcelle de pixels sur le canvas géant.",
     type: "website",
     url: SITE_URL,
-    siteName: "unmillion.fr",
+    siteName: "PixelMillions",
     images: [{ url: "/api/og", width: 1200, height: 630 }],
   },
   twitter: {
     card: "summary_large_image",
-    title: "unmillion.fr — 1 000 000 de pixels",
+    title: "PixelMillions — 1 000 000 de pixels",
     description: "Achetez votre parcelle de pixels sur le canvas géant.",
     images: ["/api/og"],
   },
@@ -47,6 +48,7 @@ export default function RootLayout({
           <AuthProvider>
             <Header />
             <main className="pb-[60px] md:pb-0">{children}</main>
+            <Footer />
             <BottomNav />
           </AuthProvider>
         </ToastProvider>

@@ -28,7 +28,7 @@ export default function Header() {
             </svg>
           </div>
           <div>
-            <div className="text-[14px] font-semibold leading-none tracking-tight">unmillion.fr</div>
+            <div className="text-[14px] font-semibold leading-none tracking-tight">PixelMillions</div>
             <div className="text-[10px] text-black/30 leading-none mt-0.5 tracking-wide uppercase">
               1 000 000 pixels
             </div>
