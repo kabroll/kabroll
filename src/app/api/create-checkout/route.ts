@@ -8,7 +8,7 @@
 //  5. Crée la session Stripe et renvoie l'URL de paiement.
 
 import { NextResponse } from "next/server";
-import { getStripe } from "@/lib/stripe";
+import { getStripe, isStripeConfigured } from "@/lib/stripe";
 import { getAdminDb, getAdminAuth, isAdminConfigured } from "@/lib/firebaseAdmin";
 import { rectsOverlap } from "@/lib/geometry";
 import {
@@ -20,7 +20,12 @@ import {
   RESERVATION_TTL_MS,
   isClosed,
 } from "@/lib/constants";
+import { fulfillPurchase, fulfillResale } from "@/lib/fulfillment";
 import type { PixelBlock, Selection } from "@/lib/types";
+
+// Mode test : si Stripe n'est pas configuré, on simule un paiement réussi
+// (toutes les écritures Firestore sont effectuées, sans page de paiement).
+const SIMULATE = !isStripeConfigured();
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -36,12 +41,6 @@ export async function POST(req: Request) {
     if (!isAdminConfigured()) {
       return NextResponse.json(
         { error: "Backend non configuré (Firebase Admin manquant)." },
-        { status: 503 },
-      );
-    }
-    if (!process.env.STRIPE_SECRET_KEY) {
-      return NextResponse.json(
-        { error: "Backend non configuré (Stripe manquant)." },
         { status: 503 },
       );
     }
@@ -66,7 +65,6 @@ export async function POST(req: Request) {
 
     const db = getAdminDb();
     const now = Date.now();
-    const stripe = getStripe();
     const siteUrl =
       process.env.NEXT_PUBLIC_SITE_URL ||
       req.headers.get("origin") ||
@@ -114,7 +112,22 @@ export async function POST(req: Request) {
         );
       }
 
+      const resalePixels = block.w * block.h;
       const amountCents = Math.round(block.salePrice * 100);
+
+      // --- Mode test : on finalise le rachat immédiatement ---
+      if (SIMULATE) {
+        await fulfillResale({
+          blockId,
+          buyerUid: uid,
+          sellerUid: block.ownerId || "",
+          pixels: resalePixels,
+          amount: block.salePrice,
+        });
+        return NextResponse.json({ url: `${siteUrl}/success?simulated=1`, simulated: true });
+      }
+
+      const stripe = getStripe();
       const resaleSession = await stripe.checkout.sessions.create({
         mode: "payment",
         line_items: [
@@ -125,7 +138,7 @@ export async function POST(req: Request) {
               unit_amount: amountCents,
               product_data: {
                 name: `Rachat de pixels unmillion.fr (${block.w}×${block.h})`,
-                description: `Bloc en (${block.x}, ${block.y}) — ${block.w * block.h} pixels`,
+                description: `Bloc en (${block.x}, ${block.y}) — ${resalePixels} pixels`,
               },
             },
           },
@@ -136,7 +149,7 @@ export async function POST(req: Request) {
           buyerUid: uid,
           sellerUid: block.ownerId || "",
           amountCents: String(amountCents),
-          pixels: String(block.w * block.h),
+          pixels: String(resalePixels),
         },
         success_url: `${siteUrl}/success?session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${siteUrl}/cancel`,
@@ -209,7 +222,19 @@ export async function POST(req: Request) {
     };
     await blockRef.set(blockData);
 
+    // --- Mode test : on finalise l'achat immédiatement ---
+    if (SIMULATE) {
+      await fulfillPurchase({
+        blockId: blockRef.id,
+        uid,
+        pixels,
+        amount: amountCents / 100,
+      });
+      return NextResponse.json({ url: `${siteUrl}/success?simulated=1`, simulated: true });
+    }
+
     // 5) Session Stripe Checkout
+    const stripe = getStripe();
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
       line_items: [

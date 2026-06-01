@@ -44,6 +44,8 @@ export default function BuyPanel({
 }: Props) {
   const { user, configured, signInWithGoogle } = useAuth();
   const toast = useToast();
+  // Stripe prêt ? (clé publique présente) — sinon achat simulé.
+  const stripeReady = Boolean(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY);
 
   const [fill, setFill] = useState<PixelFill>("color");
   const [color, setColor] = useState("#4f46e5");
@@ -223,7 +225,9 @@ export default function BuyPanel({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erreur lors de la création du paiement.");
       if (!data.url) throw new Error("Réponse de paiement invalide.");
-      toast.success("Redirection vers le paiement sécurisé…");
+      toast.success(
+        data.simulated ? "Achat simulé : pixels créés ✅" : "Redirection vers le paiement sécurisé…",
+      );
       window.location.href = data.url;
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Une erreur est survenue.";
@@ -479,7 +483,14 @@ export default function BuyPanel({
 
           {!configured && !closed && (
             <div className="text-[12px] text-amber-700 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
-              Mode démo : connectez Firebase et Stripe pour activer l'achat réel.
+              Mode démo : connectez Firebase pour activer l&apos;achat.
+            </div>
+          )}
+
+          {configured && !stripeReady && !closed && (
+            <div className="text-[12px] text-indigo-700 bg-accent-soft border border-accent/15 rounded-xl px-3 py-2">
+              Mode test : l&apos;achat est simulé (aucun paiement). Toutes les
+              données seront bien créées en base.
             </div>
           )}
         </div>
@@ -496,7 +507,7 @@ export default function BuyPanel({
             {closed ? (
               "Œuvre clôturée"
             ) : loading ? (
-              "Redirection vers le paiement…"
+              stripeReady ? "Redirection vers le paiement…" : "Création en cours…"
             ) : !user ? (
               "Se connecter pour acheter"
             ) : (
@@ -504,7 +515,7 @@ export default function BuyPanel({
                 <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75M6.75 21.75h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
                 </svg>
-                Payer {formatEUR(totalPrice)}
+                {stripeReady ? "Payer" : "Simuler l'achat"} {formatEUR(totalPrice)}
               </>
             )}
           </Button>

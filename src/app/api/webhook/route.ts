@@ -14,13 +14,10 @@
 import { NextResponse } from "next/server";
 import type Stripe from "stripe";
 import { getStripe } from "@/lib/stripe";
-import { getAdminDb, getAdminAuth } from "@/lib/firebaseAdmin";
+import { getAdminDb } from "@/lib/firebaseAdmin";
 import { FieldValue } from "firebase-admin/firestore";
-import {
-  OFFERS_COLLECTION,
-  PIXELS_COLLECTION,
-  USERS_COLLECTION,
-} from "@/lib/constants";
+import { PIXELS_COLLECTION } from "@/lib/constants";
+import { fulfillPurchase, fulfillResale } from "@/lib/fulfillment";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -53,10 +50,23 @@ export async function POST(req: Request) {
     switch (event.type) {
       case "checkout.session.completed": {
         const session = event.data.object as Stripe.Checkout.Session;
-        if (session.metadata?.type === "resale") {
-          await handleResaleCompleted(db, session);
+        const m = session.metadata ?? {};
+        const amount = (session.amount_total ?? 0) / 100;
+        if (m.type === "resale") {
+          await fulfillResale({
+            blockId: m.blockId || "",
+            buyerUid: m.buyerUid || "",
+            sellerUid: m.sellerUid || "",
+            pixels: Number(m.pixels || 0),
+            amount,
+          });
         } else {
-          await handlePurchaseCompleted(db, session);
+          await fulfillPurchase({
+            blockId: m.blockId || "",
+            uid: m.uid || "",
+            pixels: Number(m.pixels || 0),
+            amount,
+          });
         }
         break;
       }
@@ -99,118 +109,4 @@ export async function POST(req: Request) {
     console.error("Erreur traitement webhook:", e);
     return NextResponse.json({ error: "Erreur serveur webhook." }, { status: 500 });
   }
-}
-
-// --- Achat initial : active le bloc + agrégats ------------------------------
-async function handlePurchaseCompleted(
-  db: FirebaseFirestore.Firestore,
-  session: Stripe.Checkout.Session,
-) {
-  const blockId = session.metadata?.blockId;
-  const uid = session.metadata?.uid;
-  const pixels = Number(session.metadata?.pixels || 0);
-  const amount = (session.amount_total ?? 0) / 100;
-  if (!blockId) return;
-
-  await db.collection(PIXELS_COLLECTION).doc(blockId).set(
-    { status: "active", paidAt: Date.now(), expiresAt: FieldValue.delete() },
-    { merge: true },
-  );
-
-  if (uid) {
-    await db.collection(USERS_COLLECTION).doc(uid).set(
-      {
-        totalPixels: FieldValue.increment(pixels),
-        totalSpent: FieldValue.increment(amount),
-        totalBlocks: FieldValue.increment(1),
-        updatedAt: Date.now(),
-      },
-      { merge: true },
-    );
-  }
-}
-
-// --- Rachat : transfert de propriété + agrégats + offres -------------------
-async function handleResaleCompleted(
-  db: FirebaseFirestore.Firestore,
-  session: Stripe.Checkout.Session,
-) {
-  const blockId = session.metadata?.blockId;
-  const buyerUid = session.metadata?.buyerUid;
-  const sellerUid = session.metadata?.sellerUid;
-  const pixels = Number(session.metadata?.pixels || 0);
-  const amount = (session.amount_total ?? 0) / 100;
-  if (!blockId || !buyerUid) return;
-
-  // Nom de l'acheteur.
-  let buyerName = "Anonyme";
-  try {
-    const u = await getAdminAuth().getUser(buyerUid);
-    buyerName = u.displayName || u.email || "Anonyme";
-  } catch {
-    /* ignore */
-  }
-
-  const blockRef = db.collection(PIXELS_COLLECTION).doc(blockId);
-  const snap = await blockRef.get();
-  if (!snap.exists) return;
-  const block = snap.data()!;
-
-  // Idempotence : si déjà transféré à l'acheteur, on s'arrête.
-  if (block.ownerId === buyerUid && !block.forSale) return;
-
-  await blockRef.set(
-    {
-      ownerId: buyerUid,
-      ownerName: buyerName,
-      forSale: false,
-      salePrice: FieldValue.delete(),
-      reservedForUid: FieldValue.delete(),
-      reservedForName: FieldValue.delete(),
-      salePendingUid: FieldValue.delete(),
-      salePendingUntil: FieldValue.delete(),
-      salePendingSessionId: FieldValue.delete(),
-      resaleCount: FieldValue.increment(1),
-      lastSoldAt: Date.now(),
-    },
-    { merge: true },
-  );
-
-  // Agrégats : l'acheteur gagne les pixels et dépense ; le vendeur les perd.
-  await db.collection(USERS_COLLECTION).doc(buyerUid).set(
-    {
-      totalPixels: FieldValue.increment(pixels),
-      totalSpent: FieldValue.increment(amount),
-      totalBlocks: FieldValue.increment(1),
-      updatedAt: Date.now(),
-    },
-    { merge: true },
-  );
-  if (sellerUid) {
-    await db.collection(USERS_COLLECTION).doc(sellerUid).set(
-      {
-        totalPixels: FieldValue.increment(-pixels),
-        totalBlocks: FieldValue.increment(-1),
-        // Montant à reverser au vendeur (à traiter via Stripe Connect).
-        pendingPayout: FieldValue.increment(amount),
-        updatedAt: Date.now(),
-      },
-      { merge: true },
-    );
-  }
-
-  // Clôture les offres liées à ce bloc.
-  const offers = await db
-    .collection(OFFERS_COLLECTION)
-    .where("blockId", "==", blockId)
-    .where("status", "in", ["pending", "accepted"])
-    .get();
-  const batch = db.batch();
-  offers.forEach((o) => {
-    const data = o.data();
-    const newStatus =
-      data.fromUid === buyerUid ? "completed" : "rejected";
-    batch.update(o.ref, { status: newStatus, updatedAt: Date.now() });
-  });
-  await batch.commit();
 }
