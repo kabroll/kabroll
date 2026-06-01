@@ -130,7 +130,7 @@ function CanvasView() {
       )}
 
       {activeBlock && count === 0 && !checkoutOpen && (
-        <BlockDetailPanel block={activeBlock} onClose={() => setActiveBlockId(null)} />
+        <BlockDetailPanel block={activeBlock} allBlocks={blocks} onClose={() => setActiveBlockId(null)} />
       )}
     </div>
   );

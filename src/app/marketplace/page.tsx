@@ -1,10 +1,13 @@
 "use client";
 
-// Marketplace : tous les blocs proposés à la revente, avec tri et recherche.
-// Cliquer sur un bloc recentre le canvas dessus et ouvre son détail.
+// Marketplace : annonces de revente.
+// Les blocs vendus en GROUPE (saleGroupId) sont regroupés en UNE annonce
+// = la création entière (miniature complète, prix total). Les blocs vendus
+// à la pièce restent des annonces individuelles.
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import GroupThumb from "@/components/GroupThumb";
 import { usePixels } from "@/lib/usePixels";
 import { formatEUR, formatNumber } from "@/lib/constants";
 import { publicOwnerName } from "@/lib/display";
@@ -12,28 +15,99 @@ import type { PixelBlock } from "@/lib/types";
 
 type Sort = "recent" | "price-asc" | "price-desc" | "size-desc";
 
+/** Une annonce du marketplace : un bloc seul OU une création entière. */
+interface Listing {
+  key: string;
+  blocks: PixelBlock[]; // 1 (pièce) ou N (création)
+  isGroup: boolean;
+  label?: string;
+  ownerName?: string;
+  pixels: number;
+  price: number; // total
+  createdAt: number;
+  /** Bloc d'entrée pour le lien (recentrage canvas + ouverture détail). */
+  anchor: PixelBlock;
+}
+
+function boundingBox(blocks: PixelBlock[]) {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const b of blocks) {
+    minX = Math.min(minX, b.x); minY = Math.min(minY, b.y);
+    maxX = Math.max(maxX, b.x + b.w); maxY = Math.max(maxY, b.y + b.h);
+  }
+  return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+}
+
 export default function MarketplacePage() {
   const { blocks, loading, usingMock } = usePixels();
   const [sort, setSort] = useState<Sort>("recent");
   const [query, setQuery] = useState("");
 
-  const forSale = useMemo(() => {
-    let list = blocks.filter(
+  const listings = useMemo<Listing[]>(() => {
+    const onSale = blocks.filter(
       (b) => b.status === "active" && b.forSale && b.salePrice != null && !b.reservedForUid,
     );
+
+    // Regroupe par saleGroupId (création entière) ; sinon annonce par bloc.
+    const groups = new Map<string, PixelBlock[]>();
+    const singles: PixelBlock[] = [];
+    for (const b of onSale) {
+      if (b.saleGroupId) {
+        const arr = groups.get(b.saleGroupId) || [];
+        arr.push(b);
+        groups.set(b.saleGroupId, arr);
+      } else {
+        singles.push(b);
+      }
+    }
+
+    const result: Listing[] = [];
+
+    for (const [gid, gblocks] of groups) {
+      const anchor = gblocks[0];
+      result.push({
+        key: `g-${gid}`,
+        blocks: gblocks,
+        isGroup: true,
+        label: gblocks.find((b) => b.groupLabel)?.groupLabel,
+        ownerName: anchor.ownerName,
+        pixels: gblocks.reduce((a, b) => a + b.w * b.h, 0),
+        price: gblocks.reduce((a, b) => a + (b.salePrice || 0), 0),
+        createdAt: Math.max(...gblocks.map((b) => b.createdAt || 0)),
+        anchor,
+      });
+    }
+    for (const b of singles) {
+      result.push({
+        key: `b-${b.id}`,
+        blocks: [b],
+        isGroup: false,
+        label: b.groupLabel,
+        ownerName: b.ownerName,
+        pixels: b.w * b.h,
+        price: b.salePrice || 0,
+        createdAt: b.createdAt || 0,
+        anchor: b,
+      });
+    }
+
+    // Recherche
+    let list = result;
     if (query.trim()) {
       const q = query.toLowerCase();
       list = list.filter(
-        (b) =>
-          b.ownerName?.toLowerCase().includes(q) ||
-          b.message?.toLowerCase().includes(q),
+        (l) =>
+          l.ownerName?.toLowerCase().includes(q) ||
+          l.label?.toLowerCase().includes(q) ||
+          l.blocks.some((b) => b.message?.toLowerCase().includes(q)),
       );
     }
-    const sorters: Record<Sort, (a: PixelBlock, b: PixelBlock) => number> = {
-      recent: (a, b) => (b.createdAt || 0) - (a.createdAt || 0),
-      "price-asc": (a, b) => (a.salePrice || 0) - (b.salePrice || 0),
-      "price-desc": (a, b) => (b.salePrice || 0) - (a.salePrice || 0),
-      "size-desc": (a, b) => b.w * b.h - a.w * a.h,
+
+    const sorters: Record<Sort, (a: Listing, b: Listing) => number> = {
+      recent: (a, b) => b.createdAt - a.createdAt,
+      "price-asc": (a, b) => a.price - b.price,
+      "price-desc": (a, b) => b.price - a.price,
+      "size-desc": (a, b) => b.pixels - a.pixels,
     };
     return [...list].sort(sorters[sort]);
   }, [blocks, sort, query]);
@@ -43,7 +117,7 @@ export default function MarketplacePage() {
       <div className="mb-6">
         <h1 className="text-2xl font-bold tracking-tight">Marketplace</h1>
         <p className="text-[14px] text-black/45 mt-1">
-          Les blocs de pixels proposés à la revente par leurs propriétaires.
+          Les créations et blocs proposés à la revente par leurs propriétaires.
         </p>
       </div>
 
@@ -63,7 +137,7 @@ export default function MarketplacePage() {
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Rechercher un vendeur, un message…"
+            placeholder="Rechercher une création, un vendeur…"
             className="w-full bg-black/[0.02] border border-black/[0.06] rounded-xl pl-9 pr-3 py-2.5 text-[13px] focus:outline-none focus:border-accent/40 transition-colors"
           />
         </div>
@@ -89,42 +163,51 @@ export default function MarketplacePage() {
             </div>
           ))}
         </div>
-      ) : forSale.length === 0 ? (
+      ) : listings.length === 0 ? (
         <EmptyState />
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-          {forSale.map((b) => (
-            <Link
-              key={b.id}
-              href={`/?block=${b.id}&x=${b.x}&y=${b.y}&w=${b.w}&h=${b.h}`}
-              className="group rounded-2xl border border-black/[0.06] p-3 hover:border-accent/30 hover:shadow-sm transition-all"
-            >
-              <div className="aspect-square rounded-xl overflow-hidden border border-black/[0.06] bg-zinc-100 mb-3">
-                {b.fill === "image" && b.imageUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={b.imageUrl}
-                    alt=""
-                    className="w-full h-full object-cover"
-                    style={{ imageRendering: "pixelated" }}
-                  />
-                ) : (
-                  <div className="w-full h-full" style={{ backgroundColor: b.color || "#111" }} />
-                )}
-              </div>
-              <div className="flex items-center justify-between gap-2">
-                <div className="min-w-0">
-                  <div className="text-[13px] font-semibold truncate">{publicOwnerName(b.ownerName)}</div>
-                  <div className="text-[11px] text-black/40">
-                    {b.w}×{b.h} · {formatNumber(b.w * b.h)} px
-                  </div>
+          {listings.map((l) => {
+            const bb = boundingBox(l.blocks);
+            const href = `/?block=${l.anchor.id}&x=${bb.x}&y=${bb.y}&w=${bb.w}&h=${bb.h}`;
+            return (
+              <Link
+                key={l.key}
+                href={href}
+                className="group rounded-2xl border border-black/[0.06] p-3 hover:border-accent/30 hover:shadow-sm transition-all"
+              >
+                <div className="aspect-square rounded-xl overflow-hidden border border-black/[0.06] bg-zinc-100 mb-3 flex items-center justify-center relative">
+                  {l.isGroup ? (
+                    <GroupThumb blocks={l.blocks} size={120} />
+                  ) : l.anchor.fill === "image" && l.anchor.imageUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={l.anchor.imageUrl} alt="" className="w-full h-full object-cover" style={{ imageRendering: "pixelated" }} />
+                  ) : (
+                    <div className="w-full h-full" style={{ backgroundColor: l.anchor.color || "#111" }} />
+                  )}
+                  {l.isGroup && (
+                    <span className="absolute top-1.5 left-1.5 bg-accent text-white text-[10px] font-semibold px-1.5 py-0.5 rounded-md shadow-sm">
+                      Création
+                    </span>
+                  )}
                 </div>
-                <span className="text-[13px] font-bold text-green-700 shrink-0">
-                  {formatEUR(b.salePrice!)}
-                </span>
-              </div>
-            </Link>
-          ))}
+                <div className="flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="text-[13px] font-semibold truncate">
+                      {l.label || publicOwnerName(l.ownerName)}
+                    </div>
+                    <div className="text-[11px] text-black/40">
+                      {formatNumber(l.pixels)} px
+                      {l.isGroup ? ` · ${l.blocks.length} blocs` : ""}
+                    </div>
+                  </div>
+                  <span className="text-[13px] font-bold text-green-700 shrink-0">
+                    {formatEUR(l.price)}
+                  </span>
+                </div>
+              </Link>
+            );
+          })}
         </div>
       )}
     </div>
@@ -139,7 +222,7 @@ function EmptyState() {
           <path strokeLinecap="round" strokeLinejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.3 2.3c-.6.6-.2 1.7.7 1.7H17" />
         </svg>
       </div>
-      <p className="text-black/40 text-[14px]">Aucun bloc en vente pour le moment.</p>
+      <p className="text-black/40 text-[14px]">Aucune annonce pour le moment.</p>
       <Link
         href="/?buy=1"
         className="inline-block mt-4 px-5 py-2.5 bg-accent text-white text-[13px] font-semibold rounded-xl hover:bg-accent-700 transition-colors"

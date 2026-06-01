@@ -8,6 +8,7 @@ import { useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import { useToast } from "@/components/ToastProvider";
 import { Button } from "@/components/ui";
+import GroupThumb from "@/components/GroupThumb";
 import { buyResale, makeOffer, unlistBlock } from "@/lib/api";
 import { MIN_SALE_PRICE_EUR, formatEUR, formatNumber } from "@/lib/constants";
 import { publicOwnerName } from "@/lib/display";
@@ -15,10 +16,12 @@ import type { PixelBlock } from "@/lib/types";
 
 interface Props {
   block: PixelBlock;
+  /** Tous les blocs (pour retrouver les frères d'une création en vente). */
+  allBlocks?: PixelBlock[];
   onClose: () => void;
 }
 
-export default function BlockDetailPanel({ block, onClose }: Props) {
+export default function BlockDetailPanel({ block, allBlocks = [], onClose }: Props) {
   const { user, openAuth } = useAuth();
   const toast = useToast();
   const [offerOpen, setOfferOpen] = useState(false);
@@ -26,8 +29,16 @@ export default function BlockDetailPanel({ block, onClose }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Si le bloc est vendu dans le cadre d'une création entière, on agrège
+  // tous les blocs du groupe pour afficher prix total et pixels totaux.
+  const groupBlocks = block.saleGroupId
+    ? allBlocks.filter((b) => b.saleGroupId === block.saleGroupId)
+    : [block];
+  const isGroupSale = block.saleGroupId ? groupBlocks.length > 1 : false;
+
   const isOwner = !!user && block.ownerId === user.uid;
-  const pixels = block.w * block.h;
+  const pixels = groupBlocks.reduce((a, b) => a + b.w * b.h, 0);
+  const groupPrice = groupBlocks.reduce((a, b) => a + (b.salePrice || 0), 0);
   const reservedForMe = block.reservedForUid && block.reservedForUid === user?.uid;
   const reservedForOther = block.reservedForUid && block.reservedForUid !== user?.uid;
   const canBuyNow = block.forSale && !!block.salePrice && !reservedForOther && !isOwner;
@@ -123,20 +134,26 @@ export default function BlockDetailPanel({ block, onClose }: Props) {
         </div>
         {/* En-tête */}
         <div className="flex items-start gap-3 px-5 py-2.5 sm:py-3.5 border-b border-black/[0.06] shrink-0">
-          <div className="w-12 h-12 rounded-lg overflow-hidden border border-black/10 shrink-0 bg-zinc-100">
-            {block.fill === "image" && block.imageUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={block.imageUrl} alt="" className="w-full h-full object-cover" style={{ imageRendering: "pixelated" }} />
-            ) : (
-              <div className="w-full h-full" style={{ backgroundColor: block.color || "#111" }} />
-            )}
-          </div>
+          {isGroupSale ? (
+            <GroupThumb blocks={groupBlocks} size={48} />
+          ) : (
+            <div className="w-12 h-12 rounded-lg overflow-hidden border border-black/10 shrink-0 bg-zinc-100">
+              {block.fill === "image" && block.imageUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={block.imageUrl} alt="" className="w-full h-full object-cover" style={{ imageRendering: "pixelated" }} />
+              ) : (
+                <div className="w-full h-full" style={{ backgroundColor: block.color || "#111" }} />
+              )}
+            </div>
+          )}
           <div className="flex-1 min-w-0">
             <div className="text-[15px] font-semibold truncate">
-              {publicOwnerName(block.ownerName)}
+              {isGroupSale && block.groupLabel ? block.groupLabel : publicOwnerName(block.ownerName)}
             </div>
             <div className="text-[12px] text-black/40">
-              {block.w} × {block.h} · {formatNumber(pixels)} px · ({block.x}, {block.y})
+              {isGroupSale
+                ? `Création · ${groupBlocks.length} blocs · ${formatNumber(pixels)} px`
+                : `${block.w} × ${block.h} · ${formatNumber(pixels)} px · (${block.x}, ${block.y})`}
             </div>
           </div>
           <button
@@ -182,9 +199,11 @@ export default function BlockDetailPanel({ block, onClose }: Props) {
 
           {block.forSale && block.salePrice != null && (
             <div className="flex items-center justify-between bg-green-50 border border-green-100 rounded-xl px-3.5 py-3">
-              <span className="text-[13px] text-green-700 font-medium">À vendre</span>
+              <span className="text-[13px] text-green-700 font-medium">
+                {isGroupSale ? "Création à vendre" : "À vendre"}
+              </span>
               <span className="text-[18px] font-bold text-green-700">
-                {formatEUR(block.salePrice)}
+                {formatEUR(isGroupSale ? groupPrice : block.salePrice)}
               </span>
             </div>
           )}
@@ -243,7 +262,9 @@ export default function BlockDetailPanel({ block, onClose }: Props) {
             <>
               {canBuyNow && (
                 <Button onClick={handleBuy} loading={loading} fullWidth className="py-3.5 rounded-2xl">
-                  {loading ? "Redirection…" : `Acheter pour ${formatEUR(block.salePrice!)}`}
+                  {loading
+                    ? "Redirection…"
+                    : `Acheter ${isGroupSale ? "la création" : ""} pour ${formatEUR(isGroupSale ? groupPrice : block.salePrice!)}`}
                 </Button>
               )}
               {!reservedForOther &&
