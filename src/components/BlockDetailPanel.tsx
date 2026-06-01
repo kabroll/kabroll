@@ -19,7 +19,7 @@ interface Props {
 }
 
 export default function BlockDetailPanel({ block, onClose }: Props) {
-  const { user, signInWithGoogle } = useAuth();
+  const { user, openAuth } = useAuth();
   const toast = useToast();
   const [offerOpen, setOfferOpen] = useState(false);
   const [amount, setAmount] = useState<string>("");
@@ -35,8 +35,8 @@ export default function BlockDetailPanel({ block, onClose }: Props) {
   async function handleBuy() {
     setError(null);
     if (!user) {
-      toast.info("Connectez-vous pour acheter ce bloc.");
-      return signInWithGoogle();
+      openAuth();
+      return;
     }
     setLoading(true);
     try {
@@ -52,8 +52,8 @@ export default function BlockDetailPanel({ block, onClose }: Props) {
   async function handleOffer() {
     setError(null);
     if (!user) {
-      toast.info("Connectez-vous pour faire une offre.");
-      return signInWithGoogle();
+      openAuth();
+      return;
     }
     const amt = Number(amount);
     if (!Number.isFinite(amt) || amt < MIN_SALE_PRICE_EUR) {
@@ -253,7 +253,7 @@ export default function BlockDetailPanel({ block, onClose }: Props) {
                   </Button>
                 ) : (
                   <Button
-                    onClick={() => (user ? setOfferOpen(true) : signInWithGoogle())}
+                    onClick={() => (user ? setOfferOpen(true) : openAuth())}
                     variant="secondary"
                     fullWidth
                     className="py-3.5 rounded-2xl"

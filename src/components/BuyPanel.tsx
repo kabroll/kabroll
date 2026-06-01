@@ -39,7 +39,7 @@ interface Props {
 }
 
 export default function BuyPanel({ blocks, onPreviewRect, onClose }: Props) {
-  const { user, configured, signInWithGoogle } = useAuth();
+  const { user, configured, openAuth } = useAuth();
   const { painted, clearPainted } = useEditor();
   const toast = useToast();
   const stripeReady = Boolean(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY);
@@ -150,7 +150,7 @@ export default function BuyPanel({ blocks, onPreviewRect, onClose }: Props) {
     setError(null);
     if (closed) return setError("L'œuvre est clôturée : le canvas est figé.");
     if (!free) return setError("Une partie de la zone est déjà prise.");
-    if (!user) { toast.info("Connectez-vous pour finaliser."); await signInWithGoogle(); return; }
+    if (!user) { openAuth(); return; }
     if (mode === "image" && !imgEl) return setError("Importez une image.");
 
     setLoading(true);

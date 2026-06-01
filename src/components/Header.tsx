@@ -13,7 +13,7 @@ const NAV = [
 
 export default function Header() {
   const pathname = usePathname();
-  const { user, signInWithGoogle, signOut } = useAuth();
+  const { user, openAuth, signOut } = useAuth();
 
   return (
     <header className="bg-white border-b border-black/[0.06] sticky top-0 z-30">
@@ -73,7 +73,7 @@ export default function Header() {
             </button>
           ) : (
             <button
-              onClick={signInWithGoogle}
+              onClick={openAuth}
               className="hidden md:inline-block px-4 py-1.5 text-black/60 hover:bg-black/[0.04] text-[13px] font-medium rounded-lg transition-colors"
             >
               Se connecter

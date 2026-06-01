@@ -55,7 +55,7 @@ function groupBlocks(blocks: PixelBlock[]): Group[] {
 }
 
 export default function ProfilPage() {
-  const { user, loading, signInWithGoogle, signOut } = useAuth();
+  const { user, loading, openAuth, signOut } = useAuth();
   const { blocks } = usePixels();
   const { received, sent } = useOffers(user?.uid);
 
@@ -103,10 +103,10 @@ export default function ProfilPage() {
           Connectez-vous pour gérer vos pixels, ventes et offres.
         </p>
         <button
-          onClick={signInWithGoogle}
+          onClick={openAuth}
           className="px-6 py-3 bg-accent text-white text-[14px] font-semibold rounded-xl hover:bg-accent-700 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-offset-2"
         >
-          Se connecter avec Google
+          Se connecter / s&apos;inscrire
         </button>
       </div>
     );
