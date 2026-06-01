@@ -7,6 +7,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { usePixels } from "@/lib/usePixels";
 import { formatEUR, formatNumber } from "@/lib/constants";
+import { publicOwnerName } from "@/lib/display";
 import type { PixelBlock } from "@/lib/types";
 
 type Sort = "recent" | "price-asc" | "price-desc" | "size-desc";
@@ -113,7 +114,7 @@ export default function MarketplacePage() {
               </div>
               <div className="flex items-center justify-between gap-2">
                 <div className="min-w-0">
-                  <div className="text-[13px] font-semibold truncate">{b.ownerName || "Anonyme"}</div>
+                  <div className="text-[13px] font-semibold truncate">{publicOwnerName(b.ownerName)}</div>
                   <div className="text-[11px] text-black/40">
                     {b.w}×{b.h} · {formatNumber(b.w * b.h)} px
                   </div>

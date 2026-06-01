@@ -1,23 +1,31 @@
 import type { PixelBlock } from "./types";
+import { buildShapeBlocks } from "./shapes";
 
-// Données de démonstration utilisées tant que Firebase n'est pas configuré,
-// pour que le canvas ne soit pas vide pendant le développement du front.
-export const MOCK_BLOCKS: PixelBlock[] = [
-  { id: "m1", x: 100, y: 100, w: 80, h: 80, fill: "color", color: "#111111", status: "active", ownerName: "Studio Noir", message: "Studio Noir — design" },
-  { id: "m2", x: 200, y: 120, w: 60, h: 40, fill: "color", color: "#ef4444", status: "active", ownerName: "RougeVif", message: "RougeVif", link: "https://example.com", forSale: true, salePrice: 120 },
-  { id: "m3", x: 320, y: 90, w: 120, h: 60, fill: "color", color: "#3b82f6", status: "active", ownerName: "BleuTech" },
-  { id: "m4", x: 480, y: 200, w: 50, h: 50, fill: "color", color: "#22c55e", status: "active", ownerName: "GreenCo" },
-  { id: "m5", x: 150, y: 300, w: 200, h: 30, fill: "color", color: "#f59e0b", status: "active", ownerName: "Bannière Or" },
-  { id: "m6", x: 600, y: 400, w: 90, h: 90, fill: "color", color: "#a855f7", status: "active", ownerName: "Violet", forSale: true, salePrice: 500 },
-  { id: "m7", x: 700, y: 150, w: 40, h: 160, fill: "color", color: "#0ea5e9", status: "active", ownerName: "Tour Cyan" },
-  { id: "m8", x: 420, y: 500, w: 70, h: 70, fill: "color", color: "#ec4899", status: "active", ownerName: "Pink" },
-  { id: "m9", x: 250, y: 600, w: 110, h: 50, fill: "color", color: "#14b8a6", status: "active", ownerName: "Teal" },
-  { id: "m10", x: 800, y: 700, w: 120, h: 120, fill: "color", color: "#111111", status: "active", ownerName: "Carré Noir" },
+// Données de démonstration (tant que Firebase n'est pas configuré).
+// On y mêle de grandes zones publicitaires et des PETITES FORMES pixel-art
+// avec des "propriétaires" (emails masqués à l'affichage) pour donner une
+// impression de communauté active = preuve sociale.
 
-  // Une "création" multi-blocs / multi-couleurs (un petit cœur) — même purchaseId.
-  { id: "h1", x: 500, y: 600, w: 20, h: 20, fill: "color", color: "#ef4444", status: "active", ownerName: "Cœur", groupLabel: "Mon cœur ❤️", purchaseId: "demo-heart" },
-  { id: "h2", x: 540, y: 600, w: 20, h: 20, fill: "color", color: "#ef4444", status: "active", ownerName: "Cœur", groupLabel: "Mon cœur ❤️", purchaseId: "demo-heart" },
-  { id: "h3", x: 480, y: 620, w: 100, h: 20, fill: "color", color: "#f43f5e", status: "active", ownerName: "Cœur", groupLabel: "Mon cœur ❤️", purchaseId: "demo-heart" },
-  { id: "h4", x: 500, y: 640, w: 60, h: 20, fill: "color", color: "#fb7185", status: "active", ownerName: "Cœur", groupLabel: "Mon cœur ❤️", purchaseId: "demo-heart" },
-  { id: "h5", x: 520, y: 660, w: 20, h: 20, fill: "color", color: "#fda4af", status: "active", ownerName: "Cœur", groupLabel: "Mon cœur ❤️", purchaseId: "demo-heart" },
+const T0 = 1_780_000_000_000; // base timestamp fixe (évite Date.now() au build)
+
+const banners: PixelBlock[] = [
+  { id: "m1", x: 120, y: 120, w: 80, h: 80, fill: "color", color: "#111111", status: "active", ownerName: "studio.noir@gmail.com", message: "Studio Noir — design", createdAt: T0 - 9_000_000 },
+  { id: "m2", x: 230, y: 140, w: 60, h: 40, fill: "color", color: "#ef4444", status: "active", ownerName: "contact@rougevif.fr", message: "RougeVif", link: "https://example.com", forSale: true, salePrice: 120, createdAt: T0 - 8_400_000 },
+  { id: "m3", x: 330, y: 110, w: 120, h: 60, fill: "color", color: "#3b82f6", status: "active", ownerName: "hello@bleutech.io", message: "BleuTech", createdAt: T0 - 7_800_000 },
+  { id: "m5", x: 170, y: 320, w: 200, h: 30, fill: "color", color: "#f59e0b", status: "active", ownerName: "pub@banniereor.com", message: "Bannière Or", createdAt: T0 - 6_000_000 },
+  { id: "m7", x: 720, y: 160, w: 40, h: 160, fill: "color", color: "#0ea5e9", status: "active", ownerName: "tour@cyan.co", message: "Tour Cyan", createdAt: T0 - 5_400_000 },
+  { id: "m10", x: 820, y: 720, w: 120, h: 120, fill: "color", color: "#111111", status: "active", ownerName: "info@carrenoir.fr", message: "Carré Noir", createdAt: T0 - 4_800_000 },
 ];
+
+// Petites formes pixel-art (cell = taille d'un "pixel" de la forme).
+const shapes: PixelBlock[] = [
+  ...buildShapeBlocks("heart", { ox: 500, oy: 600, cell: 14, idPrefix: "s-heart", ownerName: "marie.dupont@gmail.com", purchaseId: "demo-heart", label: "Mon cœur ❤️", message: "marie ❤️ unmillion", createdAt: T0 - 600_000 }),
+  ...buildShapeBlocks("star", { ox: 640, oy: 240, cell: 12, idPrefix: "s-star", ownerName: "lucas@outlook.com", purchaseId: "demo-star", label: "Étoile", message: "⭐ Lucas", createdAt: T0 - 1_200_000 }),
+  ...buildShapeBlocks("smiley", { ox: 470, oy: 230, cell: 12, idPrefix: "s-smiley", ownerName: "emma.l@yahoo.fr", purchaseId: "demo-smiley", label: "Smiley", message: "😊", createdAt: T0 - 300_000 }),
+  ...buildShapeBlocks("arrow", { ox: 250, oy: 470, cell: 12, idPrefix: "s-arrow", ownerName: "team@startup.io", purchaseId: "demo-arrow", label: "Flèche", link: "https://startup.io", message: "→ startup.io", createdAt: T0 - 2_000_000 }),
+  ...buildShapeBlocks("cloud", { ox: 360, oy: 690, cell: 12, idPrefix: "s-cloud", ownerName: "nuage@proton.me", purchaseId: "demo-cloud", label: "Nuage", createdAt: T0 - 2_600_000 }),
+  ...buildShapeBlocks("diamond", { ox: 690, oy: 470, cell: 11, idPrefix: "s-diamond", ownerName: "vip@diamond.lux", purchaseId: "demo-diamond", label: "Diamant", createdAt: T0 - 3_200_000 }),
+  ...buildShapeBlocks("check", { ox: 150, oy: 640, cell: 12, idPrefix: "s-check", ownerName: "ok@valide.fr", purchaseId: "demo-check", label: "Validé", createdAt: T0 - 900_000 }),
+];
+
+export const MOCK_BLOCKS: PixelBlock[] = [...banners, ...shapes];

@@ -8,6 +8,7 @@ import {
   formatEUR,
   formatNumber,
 } from "@/lib/constants";
+import { publicOwnerName } from "@/lib/display";
 import type { LeaderboardEntry } from "@/lib/types";
 
 export default function LeaderboardPage() {
@@ -72,7 +73,7 @@ export default function LeaderboardPage() {
                 {i + 1}
               </div>
               <div className="flex-1 min-w-0">
-                <div className="font-semibold text-[14px] truncate">{e.ownerName}</div>
+                <div className="font-semibold text-[14px] truncate">{publicOwnerName(e.ownerName)}</div>
                 <div className="text-[12px] text-black/40">
                   {e.blocks} bloc{e.blocks > 1 ? "s" : ""}
                 </div>

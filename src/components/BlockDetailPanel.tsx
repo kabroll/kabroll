@@ -10,6 +10,7 @@ import { useToast } from "@/components/ToastProvider";
 import { Button } from "@/components/ui";
 import { buyResale, makeOffer, unlistBlock } from "@/lib/api";
 import { MIN_SALE_PRICE_EUR, formatEUR, formatNumber } from "@/lib/constants";
+import { publicOwnerName } from "@/lib/display";
 import type { PixelBlock } from "@/lib/types";
 
 interface Props {
@@ -132,7 +133,7 @@ export default function BlockDetailPanel({ block, onClose }: Props) {
           </div>
           <div className="flex-1 min-w-0">
             <div className="text-[15px] font-semibold truncate">
-              {block.ownerName || "Propriétaire"}
+              {publicOwnerName(block.ownerName)}
             </div>
             <div className="text-[12px] text-black/40">
               {block.w} × {block.h} · {formatNumber(pixels)} px · ({block.x}, {block.y})

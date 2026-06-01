@@ -7,6 +7,7 @@ import BuyPanel from "@/components/BuyPanel";
 import BlockDetailPanel from "@/components/BlockDetailPanel";
 import Onboarding from "@/components/Onboarding";
 import { CountdownPill } from "@/components/Countdown";
+import RecentActivity from "@/components/RecentActivity";
 import { Spinner } from "@/components/ui";
 import { EditorProvider, useEditor } from "@/components/EditorProvider";
 import EditorToolbar from "@/components/EditorToolbar";
@@ -84,6 +85,11 @@ function CanvasView() {
         <span className="hidden xs:inline"><CountdownPill /></span>
       </div>
 
+      {/* Preuve sociale : activité récente */}
+      <div className="absolute top-14 sm:top-16 left-1/2 -translate-x-1/2 z-20">
+        <RecentActivity blocks={blocks} />
+      </div>
+
       {loading && (
         <div className="absolute inset-0 z-10 flex items-center justify-center bg-zinc-100">
           <div className="flex flex-col items-center gap-3 text-black/40">
@@ -93,15 +99,15 @@ function CanvasView() {
         </div>
       )}
 
-      {usingMock && (
-        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-20 bg-amber-50 text-amber-700 border border-amber-100 text-[11px] rounded-lg px-3 py-1.5 animate-fade-in">
-          Mode démo · données factices
+      {showHint && (
+        <div className="absolute top-[104px] sm:top-28 left-1/2 -translate-x-1/2 z-20 bg-black text-white text-[12px] rounded-lg px-3.5 py-2 shadow-lg animate-fade-in text-center max-w-[90vw]">
+          Choisissez une couleur et peignez · outils Pixel / Zone / Gomme en bas ✏️
         </div>
       )}
 
-      {showHint && (
-        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-20 bg-black text-white text-[12px] rounded-lg px-3.5 py-2 shadow-lg animate-fade-in">
-          Choisissez une couleur et peignez · outils Pixel / Zone / Gomme en bas ✏️
+      {usingMock && !showHint && (
+        <div className="absolute bottom-[108px] left-3 z-20 bg-amber-50 text-amber-700 border border-amber-100 text-[11px] rounded-lg px-3 py-1.5 animate-fade-in hidden md:block">
+          Mode démo · données factices
         </div>
       )}
 

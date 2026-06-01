@@ -13,6 +13,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { GRID_SIZE } from "@/lib/constants";
 import type { PixelBlock } from "@/lib/types";
 import { cellKey, isCellFree, parseCellKey } from "@/lib/geometry";
+import { publicOwnerName } from "@/lib/display";
 import { useEditor } from "@/components/EditorProvider";
 
 const ACCENT = "#4f46e5";
@@ -542,7 +543,7 @@ export default function PixelCanvas({
       {hover && (
         <div className="pointer-events-none absolute z-20 max-w-[220px] bg-black text-white text-[12px] rounded-lg px-3 py-2 shadow-lg animate-fade-in"
           style={{ left: hover.sx + 12, top: hover.sy + 12 }}>
-          {hover.block.ownerName && <div className="font-semibold">{hover.block.ownerName}</div>}
+          {hover.block.ownerName && <div className="font-semibold">{publicOwnerName(hover.block.ownerName)}</div>}
           {hover.block.message && <div className="text-white/70">{hover.block.message}</div>}
           {hover.block.forSale && hover.block.salePrice != null && (
             <div className="text-green-300 font-medium mt-0.5">À vendre · {hover.block.salePrice} €</div>
