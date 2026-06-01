@@ -31,6 +31,16 @@ export function unlistBlock(blockId: string) {
   return authedPost("/api/listing", { blockId, action: "unlist" });
 }
 
+/** Met une création entière en vente (tous les blocs du purchaseId). */
+export function listGroup(purchaseId: string, price: number) {
+  return authedPost("/api/listing", { purchaseId, scope: "group", action: "list", price });
+}
+
+/** Retire une création entière de la vente. */
+export function unlistGroup(purchaseId: string) {
+  return authedPost("/api/listing", { purchaseId, scope: "group", action: "unlist" });
+}
+
 /** Propose une offre de rachat sur un bloc. */
 export function makeOffer(blockId: string, amount: number) {
   return authedPost("/api/offers", { blockId, amount });

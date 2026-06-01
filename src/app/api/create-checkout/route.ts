@@ -20,7 +20,7 @@ import {
   RESERVATION_TTL_MS,
   isClosed,
 } from "@/lib/constants";
-import { fulfillPurchaseGroup, fulfillResale } from "@/lib/fulfillment";
+import { fulfillPurchaseGroup, fulfillResale, fulfillResaleGroup } from "@/lib/fulfillment";
 import type { PixelBlock, Selection } from "@/lib/types";
 
 // Mode test : si Stripe n'est pas configuré, on simule un paiement réussi
@@ -54,7 +54,7 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json();
-    const { idToken, rects, fill, color, imageUrl, link, message, ownerName } = body;
+    const { idToken, rects, groupLabel, link, message, ownerName } = body;
 
     // 1) Auth
     if (!idToken || typeof idToken !== "string") {
@@ -112,18 +112,40 @@ export async function POST(req: Request) {
         );
       }
 
-      const resalePixels = block.w * block.h;
-      const amountCents = Math.round(block.salePrice * 100);
+      // Le bloc fait-il partie d'une création vendue en entier ?
+      const isGroup = Boolean(block.saleGroupId);
+      let groupDocs = [{ id: blockId, ref, data: block }];
+      if (isGroup) {
+        const grp = await db
+          .collection(PIXELS_COLLECTION)
+          .where("saleGroupId", "==", block.saleGroupId)
+          .get();
+        groupDocs = grp.docs.map((d) => ({ id: d.id, ref: d.ref, data: d.data() as typeof block }));
+      }
+
+      const resalePixels = groupDocs.reduce((acc, d) => acc + d.data.w * d.data.h, 0);
+      const totalPrice = groupDocs.reduce((acc, d) => acc + (d.data.salePrice || 0), 0);
+      const amountCents = Math.round(totalPrice * 100);
 
       // --- Mode test : on finalise le rachat immédiatement ---
       if (SIMULATE) {
-        await fulfillResale({
-          blockId,
-          buyerUid: uid,
-          sellerUid: block.ownerId || "",
-          pixels: resalePixels,
-          amount: block.salePrice,
-        });
+        if (isGroup) {
+          await fulfillResaleGroup({
+            blockIds: groupDocs.map((d) => d.id),
+            buyerUid: uid,
+            sellerUid: block.ownerId || "",
+            pixels: resalePixels,
+            amount: totalPrice,
+          });
+        } else {
+          await fulfillResale({
+            blockId,
+            buyerUid: uid,
+            sellerUid: block.ownerId || "",
+            pixels: resalePixels,
+            amount: totalPrice,
+          });
+        }
         return NextResponse.json({ url: `${siteUrl}/success?simulated=1`, simulated: true });
       }
 
@@ -137,15 +159,19 @@ export async function POST(req: Request) {
               currency: "eur",
               unit_amount: amountCents,
               product_data: {
-                name: `Rachat de pixels unmillion.fr (${block.w}×${block.h})`,
-                description: `Bloc en (${block.x}, ${block.y}) — ${resalePixels} pixels`,
+                name: isGroup
+                  ? `Rachat d'une création unmillion.fr (${groupDocs.length} blocs)`
+                  : `Rachat de pixels unmillion.fr (${block.w}×${block.h})`,
+                description: `${resalePixels} pixels`,
               },
             },
           },
         ],
         metadata: {
           type: "resale",
-          blockId,
+          ...(isGroup
+            ? { saleGroupId: String(block.saleGroupId) }
+            : { blockId }),
           buyerUid: uid,
           sellerUid: block.ownerId || "",
           amountCents: String(amountCents),
@@ -155,11 +181,15 @@ export async function POST(req: Request) {
         cancel_url: `${siteUrl}/cancel`,
       });
 
-      await ref.update({
-        salePendingUid: uid,
-        salePendingUntil: now + RESERVATION_TTL_MS,
-        salePendingSessionId: resaleSession.id,
-      });
+      const lockBatch = db.batch();
+      for (const d of groupDocs) {
+        lockBatch.update(d.ref, {
+          salePendingUid: uid,
+          salePendingUntil: now + RESERVATION_TTL_MS,
+          salePendingSessionId: resaleSession.id,
+        });
+      }
+      await lockBatch.commit();
 
       return NextResponse.json({ url: resaleSession.url });
     }
@@ -172,7 +202,9 @@ export async function POST(req: Request) {
     if (rects.length > 4096) {
       return NextResponse.json({ error: "Sélection trop fragmentée." }, { status: 400 });
     }
-    for (const r of rects) {
+    // Chaque rect porte son propre fill/couleur/imageUrl.
+    type RectIn = Selection & { fill: string; color?: string; imageUrl?: string };
+    for (const r of rects as RectIn[]) {
       if (!isValidSelection(r)) {
         return NextResponse.json({ error: "Sélection invalide." }, { status: 400 });
       }
@@ -184,15 +216,16 @@ export async function POST(req: Request) {
       ) {
         return NextResponse.json({ error: "Sélection hors limites." }, { status: 400 });
       }
+      if (r.fill !== "color" && r.fill !== "image") {
+        return NextResponse.json({ error: "Type de contenu invalide." }, { status: 400 });
+      }
+      if (r.fill === "image" && !r.imageUrl) {
+        return NextResponse.json({ error: "Image manquante." }, { status: 400 });
+      }
     }
-    if (fill !== "color" && fill !== "image") {
-      return NextResponse.json({ error: "Type de contenu invalide." }, { status: 400 });
-    }
-    if (fill === "image" && !imageUrl) {
-      return NextResponse.json({ error: "Image manquante." }, { status: 400 });
-    }
-    // Une image = un seul rectangle.
-    if (fill === "image" && rects.length !== 1) {
+    // Une image occupe un seul rectangle.
+    const hasImage = (rects as RectIn[]).some((r) => r.fill === "image");
+    if (hasImage && rects.length !== 1) {
       return NextResponse.json({ error: "Une image occupe un seul rectangle." }, { status: 400 });
     }
 
@@ -208,7 +241,7 @@ export async function POST(req: Request) {
       if (b.status === "pending" && b.expiresAt && b.expiresAt < now) continue;
       existing.push(b);
     }
-    for (const r of rects as Selection[]) {
+    for (const r of rects as RectIn[]) {
       if (existing.some((b) => rectsOverlap(r, b))) {
         return NextResponse.json(
           { error: "Une partie de la sélection est déjà occupée ou réservée." },
@@ -217,22 +250,23 @@ export async function POST(req: Request) {
       }
     }
 
-    const totalPixels = (rects as Selection[]).reduce((acc, r) => acc + r.w * r.h, 0);
+    const totalPixels = (rects as RectIn[]).reduce((acc, r) => acc + r.w * r.h, 0);
     const amountCents = totalPixels * PRICE_PER_PIXEL_CENTS;
-    // Identifiant de groupe : relie tous les blocs d'un même achat.
+    // Identifiant de groupe : relie tous les blocs d'un même achat (une création).
     const purchaseId = db.collection(PIXELS_COLLECTION).doc().id;
 
-    // 4) Réservation "pending" — un bloc par rectangle.
+    // 4) Réservation "pending" — un bloc par rectangle, avec sa couleur.
     const blockIds: string[] = [];
-    for (const r of rects as Selection[]) {
+    for (const r of rects as RectIn[]) {
       const blockRef = db.collection(PIXELS_COLLECTION).doc();
-      const blockData: Omit<PixelBlock, "id"> & { purchaseId: string } = {
+      const blockData: Record<string, unknown> = {
         x: r.x, y: r.y, w: r.w, h: r.h,
-        fill,
-        ...(fill === "color" ? { color: color || "#111111" } : {}),
-        ...(imageUrl ? { imageUrl } : {}),
+        fill: r.fill,
+        ...(r.fill === "color" ? { color: r.color || "#111111" } : {}),
+        ...(r.imageUrl ? { imageUrl: r.imageUrl } : {}),
         ...(link ? { link } : {}),
         ...(message ? { message } : {}),
+        ...(groupLabel ? { groupLabel } : {}),
         ownerId: uid,
         ownerName: ownerName || "Anonyme",
         status: "pending",

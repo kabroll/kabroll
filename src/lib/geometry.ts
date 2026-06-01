@@ -94,6 +94,59 @@ export function cellsBoundingBox(cells: Set<string>): Selection | null {
   return { x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1 };
 }
 
+/** Rectangle coloré : une zone uniforme d'une seule couleur. */
+export interface ColoredRect extends Selection {
+  color: string;
+}
+
+/**
+ * Décompose une peinture multi-couleurs (Map cellule -> couleur) en
+ * rectangles maximaux, chacun d'UNE seule couleur. Couverture gloutonne :
+ * on n'étend un rectangle que sur des cellules de la même couleur.
+ */
+export function decomposePaintToRects(
+  painted: Map<string, string>,
+): ColoredRect[] {
+  const remaining = new Map(painted);
+  const rects: ColoredRect[] = [];
+
+  const sorted = Array.from(remaining.keys())
+    .map((k) => ({ k, ...parseCellKey(k) }))
+    .sort((a, b) => (a.y - b.y) || (a.x - b.x));
+
+  for (const start of sorted) {
+    if (!remaining.has(start.k)) continue;
+    const color = remaining.get(start.k)!;
+
+    // Étend à droite tant que même couleur.
+    let w = 1;
+    while (remaining.get(cellKey(start.x + w, start.y)) === color) w++;
+
+    // Étend vers le bas tant que toute la bande est de la même couleur.
+    let h = 1;
+    let canExtend = true;
+    while (canExtend) {
+      const ny = start.y + h;
+      for (let dx = 0; dx < w; dx++) {
+        if (remaining.get(cellKey(start.x + dx, ny)) !== color) {
+          canExtend = false;
+          break;
+        }
+      }
+      if (canExtend) h++;
+    }
+
+    for (let dy = 0; dy < h; dy++) {
+      for (let dx = 0; dx < w; dx++) {
+        remaining.delete(cellKey(start.x + dx, start.y + dy));
+      }
+    }
+    rects.push({ x: start.x, y: start.y, w, h, color });
+  }
+
+  return rects;
+}
+
 /**
  * Décompose un ensemble de cellules en rectangles maximaux (couverture
  * gloutonne). Permet de stocker une sélection libre comme peu de blocs.

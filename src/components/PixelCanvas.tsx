@@ -1,18 +1,20 @@
 "use client";
 
-// Canvas interactif 1000x1000.
-// Outils (barre du bas) :
-//   - Sélection : peint des cellules libres (clic ou glisser), une par une
-//   - Mouvement : déplace la vue (pan)
-//   - Gomme     : retire des cellules de la sélection
-// Zoom molette + pinch (2 doigts) + double-tap. Minimap, halo "à vendre".
+// Canvas interactif 1000x1000 — éditeur "mini-Paint".
+// Outils (depuis EditorProvider) :
+//   - pixel  : peint cellule par cellule (clic / glisser)
+//   - zone   : peint un rectangle (glisser deux coins)
+//   - erase  : efface des cellules peintes
+//   - move   : déplace la vue (pan)
+//   - picker : pipette (récupère la couleur sous le curseur)
+// Multi-couleurs en direct. Zoom molette + pinch + double-tap. Minimap.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { GRID_SIZE } from "@/lib/constants";
-import type { PixelBlock, Selection } from "@/lib/types";
+import type { PixelBlock } from "@/lib/types";
 import { cellKey, isCellFree, parseCellKey } from "@/lib/geometry";
+import { useEditor } from "@/components/EditorProvider";
 
-type Tool = "select" | "move" | "erase";
 const ACCENT = "#4f46e5";
 
 interface View {
@@ -23,47 +25,47 @@ interface View {
 
 interface Props {
   blocks: PixelBlock[];
-  /** Cellules sélectionnées (clé "x,y"). */
-  cells: Set<string>;
-  onCellsChange: (cells: Set<string>) => void;
   onBlockClick?: (block: PixelBlock) => void;
-  /** Rectangle d'aperçu (mode image) dessiné en plus des cellules. */
-  previewRect?: Selection | null;
+  /** Rectangle d'aperçu image (dessiné en plus de la peinture). */
+  previewRect?: { x: number; y: number; w: number; h: number } | null;
   focusCell?: { x: number; y: number; w: number; h: number } | null;
 }
 
 export default function PixelCanvas({
   blocks,
-  cells,
-  onCellsChange,
   onBlockClick,
   previewRect,
   focusCell,
 }: Props) {
+  const editor = useEditor();
+
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const miniRef = useRef<HTMLCanvasElement>(null);
 
   const viewRef = useRef<View>({ scale: 0.5, ox: 0, oy: 0 });
   const blocksRef = useRef<PixelBlock[]>(blocks);
-  const cellsRef = useRef<Set<string>>(new Set(cells));
-  const previewRef = useRef<Selection | null>(previewRect ?? null);
+  const paintedRef = useRef<Map<string, string>>(new Map(editor.painted));
+  const previewRef = useRef(previewRect ?? null);
   const imageCache = useRef<Map<string, HTMLImageElement>>(new Map());
 
-  const [tool, setTool] = useState<Tool>("select");
-  const toolRef = useRef<Tool>(tool);
+  // Outil + couleur courants (refs pour les handlers).
+  const toolRef = useRef(editor.tool);
+  const colorRef = useRef(editor.color);
+
   const [hover, setHover] = useState<{ block: PixelBlock; sx: number; sy: number } | null>(null);
   const [coords, setCoords] = useState<{ x: number; y: number } | null>(null);
-  const [count, setCount] = useState(cells.size);
   const [zoomLabel, setZoomLabel] = useState(1);
 
   const pointers = useRef<Map<number, { x: number; y: number }>>(new Map());
   const pinch = useRef<{ dist: number; cx: number; cy: number } | null>(null);
   const lastTap = useRef<number>(0);
 
-  // Geste de peinture / pan en cours.
+  // Geste en cours.
   const gesture = useRef<{
-    mode: "paint" | "erase" | "pan";
+    mode: "paint" | "erase" | "zone" | "pan";
+    startCellX: number;
+    startCellY: number;
     startOX: number;
     startOY: number;
     startSX: number;
@@ -71,8 +73,9 @@ export default function PixelCanvas({
     moved: boolean;
     tapBlock: PixelBlock | null;
   } | null>(null);
+  const zoneRect = useRef<{ x: number; y: number; w: number; h: number } | null>(null);
 
-  // ---- Sync props -> refs ---------------------------------------------------
+  // ---- Sync props/contexte -> refs -----------------------------------------
   useEffect(() => {
     blocksRef.current = blocks;
     for (const b of blocks) {
@@ -88,19 +91,17 @@ export default function PixelCanvas({
   }, [blocks]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    cellsRef.current = new Set(cells);
-    setCount(cells.size);
+    paintedRef.current = new Map(editor.painted);
     draw();
-  }, [cells]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [editor.painted]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     previewRef.current = previewRect ?? null;
     draw();
   }, [previewRect]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => {
-    toolRef.current = tool;
-  }, [tool]);
+  useEffect(() => { toolRef.current = editor.tool; }, [editor.tool]);
+  useEffect(() => { colorRef.current = editor.color; }, [editor.color]);
 
   // ---- Helpers --------------------------------------------------------------
   const screenToCell = useCallback((sx: number, sy: number) => {
@@ -110,6 +111,8 @@ export default function PixelCanvas({
       cy: Math.floor((sy - v.oy) / v.scale),
     };
   }, []);
+
+  const commitPainted = () => editor.setPainted(paintedRef.current);
 
   // ---- Minimap --------------------------------------------------------------
   const drawMini = useCallback(() => {
@@ -189,32 +192,22 @@ export default function PixelCanvas({
       const by = v.oy + b.y * v.scale;
       const bw = b.w * v.scale;
       const bh = b.h * v.scale;
-
       if (b.fill === "image" && b.imageUrl) {
         const img = imageCache.current.get(b.imageUrl);
-        if (img && img.complete && img.naturalWidth > 0) {
-          ctx.drawImage(img, bx, by, bw, bh);
-        } else {
-          ctx.fillStyle = "#e4e4e7";
-          ctx.fillRect(bx, by, bw, bh);
-        }
+        if (img && img.complete && img.naturalWidth > 0) ctx.drawImage(img, bx, by, bw, bh);
+        else { ctx.fillStyle = "#e4e4e7"; ctx.fillRect(bx, by, bw, bh); }
       } else {
         ctx.fillStyle = b.color || "#111111";
         ctx.fillRect(bx, by, bw, bh);
       }
-
-      if (b.status === "pending") {
-        ctx.fillStyle = "rgba(255,255,255,0.5)";
-        ctx.fillRect(bx, by, bw, bh);
-      }
+      if (b.status === "pending") { ctx.fillStyle = "rgba(255,255,255,0.5)"; ctx.fillRect(bx, by, bw, bh); }
       if (b.status === "active" && b.forSale) {
-        ctx.strokeStyle = "#16a34a";
-        ctx.lineWidth = 2;
+        ctx.strokeStyle = "#16a34a"; ctx.lineWidth = 2;
         ctx.strokeRect(bx - 1, by - 1, bw + 2, bh + 2);
       }
     }
 
-    // Grille fine si zoomé.
+    // Grille fine.
     if (v.scale >= 6) {
       ctx.strokeStyle = "rgba(0,0,0,0.06)";
       ctx.lineWidth = 1;
@@ -225,13 +218,11 @@ export default function PixelCanvas({
       ctx.beginPath();
       for (let x = startX; x <= endX; x++) {
         const px = Math.round(v.ox + x * v.scale) + 0.5;
-        ctx.moveTo(px, gy);
-        ctx.lineTo(px, gy + gpx);
+        ctx.moveTo(px, gy); ctx.lineTo(px, gy + gpx);
       }
       for (let y = startY; y <= endY; y++) {
         const py = Math.round(v.oy + y * v.scale) + 0.5;
-        ctx.moveTo(gx, py);
-        ctx.lineTo(gx + gpx, py);
+        ctx.moveTo(gx, py); ctx.lineTo(gx + gpx, py);
       }
       ctx.stroke();
     }
@@ -240,14 +231,26 @@ export default function PixelCanvas({
     ctx.lineWidth = 1;
     ctx.strokeRect(gx + 0.5, gy + 0.5, gpx, gpx);
 
-    // Cellules sélectionnées.
-    ctx.fillStyle = "rgba(79,70,229,0.30)";
-    for (const k of cellsRef.current) {
+    // Peinture en cours (multi-couleurs).
+    for (const [k, col] of paintedRef.current) {
       const { x, y } = parseCellKey(k);
+      ctx.fillStyle = col;
       ctx.fillRect(v.ox + x * v.scale, v.oy + y * v.scale, v.scale, v.scale);
     }
 
-    // Rectangle d'aperçu (mode image).
+    // Aperçu zone en cours (rectangle pointillé).
+    const zr = zoneRect.current;
+    if (zr) {
+      ctx.fillStyle = colorRef.current + "55";
+      ctx.fillRect(v.ox + zr.x * v.scale, v.oy + zr.y * v.scale, zr.w * v.scale, zr.h * v.scale);
+      ctx.strokeStyle = ACCENT;
+      ctx.lineWidth = 2;
+      ctx.setLineDash([5, 4]);
+      ctx.strokeRect(v.ox + zr.x * v.scale, v.oy + zr.y * v.scale, zr.w * v.scale, zr.h * v.scale);
+      ctx.setLineDash([]);
+    }
+
+    // Aperçu image.
     const pr = previewRef.current;
     if (pr) {
       ctx.fillStyle = "rgba(79,70,229,0.14)";
@@ -272,18 +275,15 @@ export default function PixelCanvas({
     draw();
   }, [draw]);
 
-  const centerOn = useCallback(
-    (cx: number, cy: number, targetScale?: number) => {
-      const container = containerRef.current;
-      if (!container) return;
-      const v = viewRef.current;
-      if (targetScale) v.scale = Math.max(0.05, Math.min(40, targetScale));
-      v.ox = container.clientWidth / 2 - cx * v.scale;
-      v.oy = container.clientHeight / 2 - cy * v.scale;
-      draw();
-    },
-    [draw],
-  );
+  const centerOn = useCallback((cx: number, cy: number, targetScale?: number) => {
+    const container = containerRef.current;
+    if (!container) return;
+    const v = viewRef.current;
+    if (targetScale) v.scale = Math.max(0.05, Math.min(40, targetScale));
+    v.ox = container.clientWidth / 2 - cx * v.scale;
+    v.oy = container.clientHeight / 2 - cy * v.scale;
+    draw();
+  }, [draw]);
 
   useEffect(() => {
     fitToScreen();
@@ -293,57 +293,51 @@ export default function PixelCanvas({
   }, [fitToScreen, draw]);
 
   useEffect(() => {
-    if (focusCell) {
-      centerOn(
-        focusCell.x + focusCell.w / 2,
-        focusCell.y + focusCell.h / 2,
-        Math.max(4, viewRef.current.scale),
-      );
-    }
+    if (focusCell) centerOn(focusCell.x + focusCell.w / 2, focusCell.y + focusCell.h / 2, Math.max(4, viewRef.current.scale));
   }, [focusCell, centerOn]);
 
   // ---- Zoom -----------------------------------------------------------------
-  const zoomAt = useCallback(
-    (sx: number, sy: number, factor: number) => {
-      const v = viewRef.current;
-      const newScale = Math.max(0.05, Math.min(40, v.scale * factor));
-      const wx = (sx - v.ox) / v.scale;
-      const wy = (sy - v.oy) / v.scale;
-      v.scale = newScale;
-      v.ox = sx - wx * newScale;
-      v.oy = sy - wy * newScale;
-      draw();
-    },
-    [draw],
-  );
+  const zoomAt = useCallback((sx: number, sy: number, factor: number) => {
+    const v = viewRef.current;
+    const newScale = Math.max(0.05, Math.min(40, v.scale * factor));
+    const wx = (sx - v.ox) / v.scale;
+    const wy = (sy - v.oy) / v.scale;
+    v.scale = newScale;
+    v.ox = sx - wx * newScale;
+    v.oy = sy - wy * newScale;
+    draw();
+  }, [draw]);
 
-  const onWheel = useCallback(
-    (e: React.WheelEvent) => {
-      e.preventDefault();
-      const rect = canvasRef.current!.getBoundingClientRect();
-      const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
-      zoomAt(e.clientX - rect.left, e.clientY - rect.top, factor);
-    },
-    [zoomAt],
-  );
+  const onWheel = useCallback((e: React.WheelEvent) => {
+    e.preventDefault();
+    const rect = canvasRef.current!.getBoundingClientRect();
+    zoomAt(e.clientX - rect.left, e.clientY - rect.top, e.deltaY < 0 ? 1.15 : 1 / 1.15);
+  }, [zoomAt]);
 
   // ---- Peinture -------------------------------------------------------------
-  const paintAt = (sx: number, sy: number, erase: boolean) => {
-    const { cx, cy } = screenToCell(sx, sy);
+  const paintCell = (cx: number, cy: number, erase: boolean) => {
     if (cx < 0 || cy < 0 || cx >= GRID_SIZE || cy >= GRID_SIZE) return;
     const key = cellKey(cx, cy);
-    const set = cellsRef.current;
+    const map = paintedRef.current;
     if (erase) {
-      if (set.has(key)) {
-        set.delete(key);
-        draw();
-      }
+      if (map.has(key)) { map.delete(key); draw(); }
       return;
     }
-    // Sélection : on n'ajoute que des cellules LIBRES.
-    if (!set.has(key) && isCellFree(cx, cy, blocksRef.current)) {
-      set.add(key);
-      draw();
+    if (isCellFree(cx, cy, blocksRef.current)) {
+      // Repeindre une cellule déjà peinte change sa couleur.
+      if (map.get(key) !== colorRef.current) { map.set(key, colorRef.current); draw(); }
+    }
+  };
+
+  const paintZone = (x: number, y: number, w: number, h: number) => {
+    const map = paintedRef.current;
+    const col = colorRef.current;
+    for (let dy = 0; dy < h; dy++) {
+      for (let dx = 0; dx < w; dx++) {
+        const cx = x + dx, cy = y + dy;
+        if (cx < 0 || cy < 0 || cx >= GRID_SIZE || cy >= GRID_SIZE) continue;
+        if (isCellFree(cx, cy, blocksRef.current)) map.set(cellKey(cx, cy), col);
+      }
     }
   };
 
@@ -362,70 +356,74 @@ export default function PixelCanvas({
       const pts = Array.from(pointers.current.values());
       pinch.current = {
         dist: Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y),
-        cx: (pts[0].x + pts[1].x) / 2,
-        cy: (pts[0].y + pts[1].y) / 2,
+        cx: (pts[0].x + pts[1].x) / 2, cy: (pts[0].y + pts[1].y) / 2,
       };
-      gesture.current = null;
-      draw();
+      gesture.current = null; zoneRect.current = null; draw();
       return;
     }
 
-    // Double-tap -> zoom.
     const now = Date.now();
-    if (now - lastTap.current < 300) {
-      zoomAt(sx, sy, 1.8);
-      lastTap.current = 0;
-      return;
-    }
+    if (now - lastTap.current < 300) { zoomAt(sx, sy, 1.8); lastTap.current = 0; return; }
     lastTap.current = now;
 
     const v = viewRef.current;
     const t = toolRef.current;
-    const pan = t === "move" || e.button === 1 || e.button === 2;
+    const { cx, cy } = screenToCell(sx, sy);
 
-    if (pan) {
-      gesture.current = {
-        mode: "pan", startOX: v.ox, startOY: v.oy, startSX: sx, startSY: sy,
-        moved: false, tapBlock: null,
-      };
+    // Pipette : récupère la couleur sous le curseur (peinture ou bloc).
+    if (t === "picker") {
+      const k = cellKey(cx, cy);
+      const fromPaint = paintedRef.current.get(k);
+      const fromBlock = blocksRef.current.find(
+        (b) => b.status === "active" && b.fill === "color" && cx >= b.x && cx < b.x + b.w && cy >= b.y && cy < b.y + b.h,
+      );
+      const picked = fromPaint || fromBlock?.color;
+      if (picked) editor.setColor(picked);
       return;
     }
 
-    // Sélection / gomme : repère un éventuel bloc actif sous le curseur.
-    const { cx, cy } = screenToCell(sx, sy);
+    const pan = t === "move" || e.button === 1 || e.button === 2;
+    if (pan) {
+      gesture.current = { mode: "pan", startCellX: 0, startCellY: 0, startOX: v.ox, startOY: v.oy, startSX: sx, startSY: sy, moved: false, tapBlock: null };
+      return;
+    }
+
     const hit = blocksRef.current.find(
       (b) => b.status === "active" && cx >= b.x && cx < b.x + b.w && cy >= b.y && cy < b.y + b.h,
     ) || null;
 
+    if (t === "zone") {
+      gesture.current = { mode: "zone", startCellX: cx, startCellY: cy, startOX: v.ox, startOY: v.oy, startSX: sx, startSY: sy, moved: false, tapBlock: hit };
+      zoneRect.current = { x: cx, y: cy, w: 1, h: 1 };
+      draw();
+      return;
+    }
+
+    // pixel / erase
     gesture.current = {
       mode: t === "erase" ? "erase" : "paint",
-      startOX: v.ox, startOY: v.oy, startSX: sx, startSY: sy,
+      startCellX: cx, startCellY: cy, startOX: v.ox, startOY: v.oy, startSX: sx, startSY: sy,
       moved: false, tapBlock: hit,
     };
-    // Peint immédiatement (sauf si on vise un bloc existant en mode sélection,
-    // pour permettre l'ouverture du détail au simple clic).
-    if (!(t === "select" && hit)) {
-      paintAt(sx, sy, t === "erase");
+    // En mode pixel, si on vise un bloc existant et que la cellule n'est pas
+    // libre, on laisse le clic ouvrir le détail (géré au relâchement).
+    if (!(t === "pixel" && hit && !isCellFree(cx, cy, blocksRef.current))) {
+      paintCell(cx, cy, t === "erase");
     }
   };
 
   const onPointerMove = (e: React.PointerEvent) => {
     const { sx, sy } = getXY(e);
-    if (pointers.current.has(e.pointerId)) {
-      pointers.current.set(e.pointerId, { x: sx, y: sy });
-    }
+    if (pointers.current.has(e.pointerId)) pointers.current.set(e.pointerId, { x: sx, y: sy });
 
     if (pinch.current && pointers.current.size >= 2) {
       const pts = Array.from(pointers.current.values());
       const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
-      const cx = (pts[0].x + pts[1].x) / 2;
-      const cy = (pts[0].y + pts[1].y) / 2;
+      const cx = (pts[0].x + pts[1].x) / 2, cy = (pts[0].y + pts[1].y) / 2;
       zoomAt(cx, cy, dist / (pinch.current.dist || dist));
       const v = viewRef.current;
-      v.ox += cx - pinch.current.cx;
-      v.oy += cy - pinch.current.cy;
-      pinch.current = { dist, cx, cy };
-      draw();
+      v.ox += cx - pinch.current.cx; v.oy += cy - pinch.current.cy;
+      pinch.current = { dist, cx, cy }; draw();
       return;
     }
 
@@ -435,9 +433,7 @@ export default function PixelCanvas({
 
     if (!g) {
       const found = blocksRef.current.find(
-        (b) =>
-          b.status === "active" &&
-          cx >= b.x && cx < b.x + b.w && cy >= b.y && cy < b.y + b.h &&
+        (b) => b.status === "active" && cx >= b.x && cx < b.x + b.w && cy >= b.y && cy < b.y + b.h &&
           (b.message || b.link || b.ownerName || b.forSale),
       );
       setHover(found ? { block: found, sx, sy } : null);
@@ -447,12 +443,15 @@ export default function PixelCanvas({
     g.moved = true;
     if (g.mode === "pan") {
       const v = viewRef.current;
-      v.ox = g.startOX + (sx - g.startSX);
-      v.oy = g.startOY + (sy - g.startSY);
+      v.ox = g.startOX + (sx - g.startSX); v.oy = g.startOY + (sy - g.startSY); draw();
+    } else if (g.mode === "zone") {
+      const x = Math.min(g.startCellX, cx), y = Math.min(g.startCellY, cy);
+      const w = Math.abs(cx - g.startCellX) + 1, h = Math.abs(cy - g.startCellY) + 1;
+      zoneRect.current = { x, y, w, h };
       draw();
     } else {
-      g.tapBlock = null; // un glissement annule l'ouverture du détail
-      paintAt(sx, sy, g.mode === "erase");
+      g.tapBlock = null;
+      paintCell(cx, cy, g.mode === "erase");
     }
   };
 
@@ -464,48 +463,38 @@ export default function PixelCanvas({
     gesture.current = null;
     if (!g) return;
 
-    // Simple clic sur un bloc existant -> ouvre le détail.
+    // Clic simple sur un bloc existant -> ouvre le détail.
     if (g.mode !== "pan" && !g.moved && g.tapBlock && onBlockClick) {
-      onBlockClick(g.tapBlock);
+      // En mode pixel, si la cellule était libre on a peint -> pas d'ouverture.
+      const wasFree = isCellFree(g.startCellX, g.startCellY, blocksRef.current);
+      if (!wasFree || g.mode === "zone") {
+        zoneRect.current = null;
+        onBlockClick(g.tapBlock);
+        draw();
+        return;
+      }
+    }
+
+    if (g.mode === "zone" && zoneRect.current) {
+      const { x, y, w, h } = zoneRect.current;
+      zoneRect.current = null;
+      paintZone(x, y, w, h);
+      commitPainted();
       return;
     }
 
-    // Commit de la sélection au parent.
-    if (g.mode === "paint" || g.mode === "erase") {
-      onCellsChange(new Set(cellsRef.current));
-    }
+    if (g.mode === "paint" || g.mode === "erase") commitPainted();
   };
 
-  const TOOLS: { id: Tool; label: string; icon: React.ReactNode }[] = [
-    {
-      id: "select",
-      label: "Sélection",
-      icon: (
-        <path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2m14 0a2 2 0 012 2M5 21a2 2 0 01-2-2m18 0a2 2 0 01-2 2M9 3h6M9 21h6M3 9v6m18-6v6" />
-      ),
-    },
-    {
-      id: "move",
-      label: "Mouvement",
-      icon: (
-        <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v18M3 12h18M8 7l4-4 4 4M8 17l4 4 4-4M7 8l-4 4 4 4M17 8l4 4-4 4" />
-      ),
-    },
-    {
-      id: "erase",
-      label: "Gomme",
-      icon: (
-        <path strokeLinecap="round" strokeLinejoin="round" d="M16 3l5 5L10 19H5l-2-2a2 2 0 010-3L13 4M8 21h12" />
-      ),
-    },
-  ];
-
   // ---- UI -------------------------------------------------------------------
+  const cursorClass =
+    editor.tool === "move" ? "cursor-grab active:cursor-grabbing"
+      : editor.tool === "picker" ? "cursor-copy"
+        : editor.tool === "erase" ? "cursor-cell"
+          : "cursor-crosshair";
+
   return (
-    <div
-      ref={containerRef}
-      className="relative w-full h-full overflow-hidden select-none touch-none bg-zinc-100"
-    >
+    <div ref={containerRef} className="relative w-full h-full overflow-hidden select-none touch-none bg-zinc-100">
       <canvas
         ref={canvasRef}
         onWheel={onWheel}
@@ -513,22 +502,12 @@ export default function PixelCanvas({
         onPointerMove={onPointerMove}
         onPointerUp={finishPointer}
         onPointerCancel={finishPointer}
-        onPointerLeave={(e) => {
-          setHover(null);
-          setCoords(null);
-          if (gesture.current) finishPointer(e);
-        }}
+        onPointerLeave={(e) => { setHover(null); setCoords(null); if (gesture.current) finishPointer(e); }}
         onContextMenu={(e) => e.preventDefault()}
-        className={
-          tool === "move"
-            ? "cursor-grab active:cursor-grabbing"
-            : tool === "erase"
-              ? "cursor-cell"
-              : "cursor-crosshair"
-        }
+        className={cursorClass}
       />
 
-      {/* Lecture coords + zoom */}
+      {/* Coords + zoom */}
       <div className="absolute top-3 right-3 flex items-center gap-2 animate-fade-in">
         {coords && (
           <div className="bg-white/95 backdrop-blur border border-black/[0.06] rounded-lg shadow-sm px-2.5 py-1.5 text-[11px] font-mono text-black/60 tabular-nums">
@@ -540,85 +519,29 @@ export default function PixelCanvas({
         </div>
       </div>
 
-      {/* Compteur de cellules sélectionnées */}
-      {count > 0 && (
-        <div className="absolute top-3 left-3 bg-accent text-white rounded-lg shadow-sm px-2.5 py-1.5 text-[11px] font-semibold tabular-nums animate-fade-in">
-          {count} pixel{count > 1 ? "s" : ""} sélectionné{count > 1 ? "s" : ""}
-        </div>
-      )}
-
       {/* Minimap */}
-      <div className="absolute bottom-16 left-3 bg-white/95 backdrop-blur rounded-xl shadow-sm border border-black/[0.06] p-1.5 animate-fade-in hidden sm:block">
+      <div className="absolute bottom-[92px] left-3 bg-white/95 backdrop-blur rounded-xl shadow-sm border border-black/[0.06] p-1.5 animate-fade-in hidden sm:block">
         <canvas ref={miniRef} style={{ width: 96, height: 96 }} className="rounded-md border border-black/[0.06]" />
       </div>
 
-      {/* Contrôles zoom */}
-      <div className="absolute bottom-16 right-3 flex flex-col gap-1 bg-white/95 backdrop-blur rounded-xl shadow-sm border border-black/[0.06] p-1 animate-fade-in">
-        <button
-          onClick={() => { const c = containerRef.current!; zoomAt(c.clientWidth / 2, c.clientHeight / 2, 1.4); }}
-          className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-black/[0.05] text-lg font-semibold focus-visible:ring-2 focus-visible:ring-accent/40"
-          aria-label="Zoomer"
-        >+</button>
-        <button
-          onClick={() => { const c = containerRef.current!; zoomAt(c.clientWidth / 2, c.clientHeight / 2, 1 / 1.4); }}
-          className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-black/[0.05] text-lg font-semibold focus-visible:ring-2 focus-visible:ring-accent/40"
-          aria-label="Dézoomer"
-        >−</button>
-        <button
-          onClick={fitToScreen}
-          className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-black/[0.05] focus-visible:ring-2 focus-visible:ring-accent/40"
-          aria-label="Réinitialiser la vue"
-        >
+      {/* Zoom */}
+      <div className="absolute bottom-[92px] right-3 flex flex-col gap-1 bg-white/95 backdrop-blur rounded-xl shadow-sm border border-black/[0.06] p-1 animate-fade-in">
+        <button onClick={() => { const c = containerRef.current!; zoomAt(c.clientWidth / 2, c.clientHeight / 2, 1.4); }}
+          className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-black/[0.05] text-lg font-semibold focus-visible:ring-2 focus-visible:ring-accent/40" aria-label="Zoomer">+</button>
+        <button onClick={() => { const c = containerRef.current!; zoomAt(c.clientWidth / 2, c.clientHeight / 2, 1 / 1.4); }}
+          className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-black/[0.05] text-lg font-semibold focus-visible:ring-2 focus-visible:ring-accent/40" aria-label="Dézoomer">−</button>
+        <button onClick={fitToScreen}
+          className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-black/[0.05] focus-visible:ring-2 focus-visible:ring-accent/40" aria-label="Réinitialiser la vue">
           <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path strokeLinecap="round" strokeLinejoin="round" d="M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4" />
           </svg>
         </button>
       </div>
 
-      {/* Barre d'outils (en bas, centrée) */}
-      <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-1 bg-white/95 backdrop-blur rounded-2xl shadow-lg border border-black/[0.06] p-1.5 animate-fade-in">
-        {TOOLS.map((t) => (
-          <button
-            key={t.id}
-            onClick={() => setTool(t.id)}
-            title={t.label}
-            aria-label={t.label}
-            aria-pressed={tool === t.id}
-            className={
-              "flex flex-col items-center justify-center gap-0.5 w-16 h-12 rounded-xl transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 " +
-              (tool === t.id ? "bg-accent text-white" : "text-black/55 hover:bg-black/[0.05]")
-            }
-          >
-            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              {t.icon}
-            </svg>
-            <span className="text-[10px] font-medium">{t.label}</span>
-          </button>
-        ))}
-        {count > 0 && (
-          <>
-            <span className="w-px h-8 bg-black/10 mx-0.5" />
-            <button
-              onClick={() => onCellsChange(new Set())}
-              title="Tout effacer"
-              aria-label="Tout effacer"
-              className="flex flex-col items-center justify-center gap-0.5 w-16 h-12 rounded-xl text-black/55 hover:bg-red-50 hover:text-red-600 transition-colors"
-            >
-              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6 7h12M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-7 4v6m4-6v6M5 7l1 13a1 1 0 001 1h10a1 1 0 001-1l1-13" />
-              </svg>
-              <span className="text-[10px] font-medium">Effacer</span>
-            </button>
-          </>
-        )}
-      </div>
-
-      {/* Tooltip survol */}
+      {/* Tooltip */}
       {hover && (
-        <div
-          className="pointer-events-none absolute z-20 max-w-[220px] bg-black text-white text-[12px] rounded-lg px-3 py-2 shadow-lg animate-fade-in"
-          style={{ left: hover.sx + 12, top: hover.sy + 12 }}
-        >
+        <div className="pointer-events-none absolute z-20 max-w-[220px] bg-black text-white text-[12px] rounded-lg px-3 py-2 shadow-lg animate-fade-in"
+          style={{ left: hover.sx + 12, top: hover.sy + 12 }}>
           {hover.block.ownerName && <div className="font-semibold">{hover.block.ownerName}</div>}
           {hover.block.message && <div className="text-white/70">{hover.block.message}</div>}
           {hover.block.forSale && hover.block.salePrice != null && (

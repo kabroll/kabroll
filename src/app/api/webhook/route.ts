@@ -17,7 +17,7 @@ import { getStripe } from "@/lib/stripe";
 import { getAdminDb } from "@/lib/firebaseAdmin";
 import { FieldValue } from "firebase-admin/firestore";
 import { PIXELS_COLLECTION } from "@/lib/constants";
-import { fulfillPurchaseGroup, fulfillResale } from "@/lib/fulfillment";
+import { fulfillPurchaseGroup, fulfillResale, fulfillResaleGroup } from "@/lib/fulfillment";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -52,7 +52,19 @@ export async function POST(req: Request) {
         const session = event.data.object as Stripe.Checkout.Session;
         const m = session.metadata ?? {};
         const amount = (session.amount_total ?? 0) / 100;
-        if (m.type === "resale") {
+        if (m.type === "resale" && m.saleGroupId) {
+          const grp = await db
+            .collection(PIXELS_COLLECTION)
+            .where("saleGroupId", "==", m.saleGroupId)
+            .get();
+          await fulfillResaleGroup({
+            blockIds: grp.docs.map((d) => d.id),
+            buyerUid: m.buyerUid || "",
+            sellerUid: m.sellerUid || "",
+            pixels: Number(m.pixels || 0),
+            amount,
+          });
+        } else if (m.type === "resale") {
           await fulfillResale({
             blockId: m.blockId || "",
             buyerUid: m.buyerUid || "",

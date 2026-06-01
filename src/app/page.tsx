@@ -8,6 +8,8 @@ import BlockDetailPanel from "@/components/BlockDetailPanel";
 import Onboarding from "@/components/Onboarding";
 import { CountdownPill } from "@/components/Countdown";
 import { Spinner } from "@/components/ui";
+import { EditorProvider, useEditor } from "@/components/EditorProvider";
+import EditorToolbar from "@/components/EditorToolbar";
 import { usePixels } from "@/lib/usePixels";
 import { useCountUp } from "@/lib/useCountUp";
 import { TOTAL_PIXELS, formatNumber } from "@/lib/constants";
@@ -15,8 +17,9 @@ import type { PixelBlock, Selection } from "@/lib/types";
 
 function CanvasView() {
   const { blocks, loading, usingMock } = usePixels();
-  const [cells, setCells] = useState<Set<string>>(new Set());
+  const { count, clearPainted } = useEditor();
   const [previewRect, setPreviewRect] = useState<Selection | null>(null);
+  const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [activeBlockId, setActiveBlockId] = useState<string | null>(null);
   const [showHint, setShowHint] = useState(false);
   const [focusCell, setFocusCell] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
@@ -28,14 +31,12 @@ function CanvasView() {
   );
 
   function handleBlockClick(b: PixelBlock) {
-    setCells(new Set());
     setActiveBlockId(b.id);
   }
 
-  function handleCellsChange(next: Set<string>) {
-    if (next.size > 0) setActiveBlockId(null);
-    setCells(next);
-  }
+  useEffect(() => {
+    if (count > 0) setActiveBlockId(null);
+  }, [count]);
 
   useEffect(() => {
     if (searchParams.get("buy") === "1") {
@@ -45,7 +46,6 @@ function CanvasView() {
     }
   }, [searchParams]);
 
-  // Recentrage depuis le marketplace (/?x=..&y=..&w=..&h=..&block=id)
   useEffect(() => {
     const x = Number(searchParams.get("x"));
     const y = Number(searchParams.get("y"));
@@ -59,10 +59,7 @@ function CanvasView() {
   }, [searchParams]);
 
   const soldPixels = useMemo(
-    () =>
-      blocks
-        .filter((b) => b.status === "active")
-        .reduce((acc, b) => acc + b.w * b.h, 0),
+    () => blocks.filter((b) => b.status === "active").reduce((acc, b) => acc + b.w * b.h, 0),
     [blocks],
   );
   const animatedSold = useCountUp(soldPixels);
@@ -81,10 +78,7 @@ function CanvasView() {
         <span className="hidden xs:inline font-semibold tabular-nums">{formatNumber(remaining)}</span>
         <span className="hidden xs:inline text-black/40">restants</span>
         <span className="hidden sm:inline w-16 h-1.5 rounded-full bg-black/[0.08] overflow-hidden">
-          <span
-            className="block h-full bg-accent transition-[width] duration-700 ease-out"
-            style={{ width: `${Math.max(2, pct)}%` }}
-          />
+          <span className="block h-full bg-accent transition-[width] duration-700 ease-out" style={{ width: `${Math.max(2, pct)}%` }} />
         </span>
         <span className="w-px h-3.5 bg-black/10" />
         <CountdownPill />
@@ -100,43 +94,48 @@ function CanvasView() {
       )}
 
       {usingMock && (
-        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 sm:left-auto sm:right-3 sm:translate-x-0 z-20 bg-amber-50 text-amber-700 border border-amber-100 text-[11px] rounded-lg px-3 py-1.5 animate-fade-in">
+        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-20 bg-amber-50 text-amber-700 border border-amber-100 text-[11px] rounded-lg px-3 py-1.5 animate-fade-in">
           Mode démo · données factices
         </div>
       )}
 
       {showHint && (
         <div className="absolute top-16 left-1/2 -translate-x-1/2 z-20 bg-black text-white text-[12px] rounded-lg px-3.5 py-2 shadow-lg animate-fade-in">
-          Cliquez ou glissez pour peindre vos pixels · gomme pour corriger ✏️
+          Choisissez une couleur et peignez · outils Pixel / Zone / Gomme en bas ✏️
         </div>
       )}
 
       <PixelCanvas
         blocks={blocks}
-        cells={cells}
-        onCellsChange={handleCellsChange}
         onBlockClick={handleBlockClick}
         previewRect={previewRect}
         focusCell={focusCell}
       />
 
-      {cells.size > 0 && (
+      {/* Barre d'outils + palette (masquée quand le checkout est ouvert sur mobile) */}
+      {!checkoutOpen && <EditorToolbar />}
+
+      {/* Bouton flottant "Continuer" quand on a peint */}
+      {count > 0 && !checkoutOpen && (
+        <button
+          onClick={() => setCheckoutOpen(true)}
+          className="absolute top-3 right-3 sm:top-auto sm:bottom-28 z-30 bg-accent hover:bg-accent-700 text-white rounded-full shadow-lg px-4 py-2.5 text-[13px] font-semibold flex items-center gap-2 animate-fade-in"
+        >
+          <span>Continuer ({formatNumber(count)} px)</span>
+          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
+        </button>
+      )}
+
+      {checkoutOpen && (
         <BuyPanel
-          cells={cells}
           blocks={blocks}
           onPreviewRect={setPreviewRect}
-          onClose={() => {
-            setCells(new Set());
-            setPreviewRect(null);
-          }}
+          onClose={() => { setCheckoutOpen(false); setPreviewRect(null); }}
         />
       )}
 
-      {activeBlock && cells.size === 0 && (
-        <BlockDetailPanel
-          block={activeBlock}
-          onClose={() => setActiveBlockId(null)}
-        />
+      {activeBlock && count === 0 && !checkoutOpen && (
+        <BlockDetailPanel block={activeBlock} onClose={() => setActiveBlockId(null)} />
       )}
     </div>
   );
@@ -145,7 +144,9 @@ function CanvasView() {
 export default function HomePage() {
   return (
     <Suspense fallback={<div className="h-[calc(100vh-58px)] bg-zinc-100" />}>
-      <CanvasView />
+      <EditorProvider>
+        <CanvasView />
+      </EditorProvider>
     </Suspense>
   );
 }

@@ -178,3 +178,65 @@ export async function fulfillResale(
   });
   await batch.commit();
 }
+
+/** Rachat d'une création entière (plusieurs blocs partageant un saleGroupId). */
+export async function fulfillResaleGroup(
+  params: { blockIds: string[]; buyerUid: string; sellerUid: string; pixels: number; amount: number },
+  db: Firestore = getAdminDb(),
+): Promise<void> {
+  const { blockIds, buyerUid, sellerUid, pixels, amount } = params;
+  if (!blockIds.length || !buyerUid) return;
+
+  let buyerName = "Anonyme";
+  try {
+    const u = await getAdminAuth().getUser(buyerUid);
+    buyerName = u.displayName || u.email || "Anonyme";
+  } catch {
+    /* ignore */
+  }
+
+  // Transfère tous les blocs du groupe.
+  const batch = db.batch();
+  for (const id of blockIds) {
+    batch.set(
+      db.collection(PIXELS_COLLECTION).doc(id),
+      {
+        ownerId: buyerUid,
+        ownerName: buyerName,
+        forSale: false,
+        salePrice: FieldValue.delete(),
+        saleGroupId: FieldValue.delete(),
+        reservedForUid: FieldValue.delete(),
+        reservedForName: FieldValue.delete(),
+        salePendingUid: FieldValue.delete(),
+        salePendingUntil: FieldValue.delete(),
+        salePendingSessionId: FieldValue.delete(),
+        resaleCount: FieldValue.increment(1),
+        lastSoldAt: Date.now(),
+      },
+      { merge: true },
+    );
+  }
+  await batch.commit();
+
+  await db.collection(USERS_COLLECTION).doc(buyerUid).set(
+    {
+      totalPixels: FieldValue.increment(pixels),
+      totalSpent: FieldValue.increment(amount),
+      totalBlocks: FieldValue.increment(blockIds.length),
+      updatedAt: Date.now(),
+    },
+    { merge: true },
+  );
+  if (sellerUid) {
+    await db.collection(USERS_COLLECTION).doc(sellerUid).set(
+      {
+        totalPixels: FieldValue.increment(-pixels),
+        totalBlocks: FieldValue.increment(-blockIds.length),
+        pendingPayout: FieldValue.increment(amount),
+        updatedAt: Date.now(),
+      },
+      { merge: true },
+    );
+  }
+}

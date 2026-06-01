@@ -13,4 +13,11 @@ export const MOCK_BLOCKS: PixelBlock[] = [
   { id: "m8", x: 420, y: 500, w: 70, h: 70, fill: "color", color: "#ec4899", status: "active", ownerName: "Pink" },
   { id: "m9", x: 250, y: 600, w: 110, h: 50, fill: "color", color: "#14b8a6", status: "active", ownerName: "Teal" },
   { id: "m10", x: 800, y: 700, w: 120, h: 120, fill: "color", color: "#111111", status: "active", ownerName: "Carré Noir" },
+
+  // Une "création" multi-blocs / multi-couleurs (un petit cœur) — même purchaseId.
+  { id: "h1", x: 500, y: 600, w: 20, h: 20, fill: "color", color: "#ef4444", status: "active", ownerName: "Cœur", groupLabel: "Mon cœur ❤️", purchaseId: "demo-heart" },
+  { id: "h2", x: 540, y: 600, w: 20, h: 20, fill: "color", color: "#ef4444", status: "active", ownerName: "Cœur", groupLabel: "Mon cœur ❤️", purchaseId: "demo-heart" },
+  { id: "h3", x: 480, y: 620, w: 100, h: 20, fill: "color", color: "#f43f5e", status: "active", ownerName: "Cœur", groupLabel: "Mon cœur ❤️", purchaseId: "demo-heart" },
+  { id: "h4", x: 500, y: 640, w: 60, h: 20, fill: "color", color: "#fb7185", status: "active", ownerName: "Cœur", groupLabel: "Mon cœur ❤️", purchaseId: "demo-heart" },
+  { id: "h5", x: 520, y: 660, w: 20, h: 20, fill: "color", color: "#fda4af", status: "active", ownerName: "Cœur", groupLabel: "Mon cœur ❤️", purchaseId: "demo-heart" },
 ];

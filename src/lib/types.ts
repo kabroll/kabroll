@@ -41,8 +41,12 @@ export interface PixelBlock {
   reservedForName?: string;
   /** Nombre de fois que le bloc a changé de mains. */
   resaleCount?: number;
-  /** Identifiant de groupe : relie les blocs d'un même achat (forme libre). */
+  /** Identifiant de groupe : relie les blocs d'un même achat (une création). */
   purchaseId?: string;
+  /** Nom donné à la création (ex. "Mon cœur"). */
+  groupLabel?: string;
+  /** Si le bloc est vendu dans le cadre d'un groupe entier (= purchaseId). */
+  saleGroupId?: string;
 }
 
 /** Statut d'une offre de rachat. */
