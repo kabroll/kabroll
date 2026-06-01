@@ -7,6 +7,14 @@ const config: Config = {
   ],
   theme: {
     extend: {
+      colors: {
+        accent: {
+          DEFAULT: "#4f46e5",
+          soft: "#eef2ff",
+          600: "#4f46e5",
+          700: "#4338ca",
+        },
+      },
       fontFamily: {
         sans: [
           "-apple-system",

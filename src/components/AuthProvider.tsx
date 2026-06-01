@@ -19,6 +19,7 @@ import {
   type User,
 } from "firebase/auth";
 import { auth, isFirebaseConfigured } from "@/lib/firebase";
+import { useToast } from "@/components/ToastProvider";
 
 interface AuthContextValue {
   user: User | null;
@@ -39,6 +40,7 @@ const AuthContext = createContext<AuthContextValue>({
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const { error: toastError, info } = useToast();
 
   useEffect(() => {
     if (!auth) {
@@ -54,11 +56,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   async function signInWithGoogle() {
     if (!auth) {
-      alert("Connexion indisponible : Firebase n'est pas encore configuré.");
+      info("Mode démo : connectez Firebase pour activer la connexion.");
       return;
     }
-    const provider = new GoogleAuthProvider();
-    await signInWithPopup(auth, provider);
+    try {
+      const provider = new GoogleAuthProvider();
+      await signInWithPopup(auth, provider);
+    } catch (e) {
+      const code = (e as { code?: string })?.code;
+      if (code === "auth/popup-closed-by-user" || code === "auth/cancelled-popup-request") {
+        return; // l'utilisateur a fermé la fenêtre — pas une vraie erreur
+      }
+      toastError("Échec de la connexion. Réessayez.");
+    }
   }
 
   async function signOut() {

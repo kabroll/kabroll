@@ -17,6 +17,11 @@ const ITEMS = [
     ),
   },
   {
+    href: "/marketplace",
+    label: "Marché",
+    icon: <path strokeLinecap="round" strokeLinejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.3 2.3c-.6.6-.2 1.7.7 1.7H17M9 19.5a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zm9 0a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z" />,
+  },
+  {
     href: "/leaderboard",
     label: "Classement",
     icon: <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.5V19a1 1 0 001 1h3v-5H3zm7-9.5V19a1 1 0 001 1h2a1 1 0 001-1V4a1 1 0 00-1-1h-2a1 1 0 00-1 1zm7 5V19a1 1 0 001 1h3v-8h-3a1 1 0 00-1 1z" />,
@@ -42,9 +47,10 @@ export default function BottomNav() {
             <Link
               key={item.href}
               href={item.href}
+              aria-current={active ? "page" : undefined}
               className={
                 "flex-1 flex flex-col items-center justify-center gap-1 transition-colors " +
-                (active ? "text-black" : "text-black/30")
+                (active ? "text-accent" : "text-black/35 hover:text-black/60")
               }
             >
               <svg

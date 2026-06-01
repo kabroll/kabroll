@@ -94,10 +94,15 @@ export default function LeaderboardPage() {
 function EmptyState() {
   return (
     <div className="text-center py-16 rounded-2xl border border-dashed border-black/10">
-      <p className="text-black/40 text-[14px]">Aucun pixel vendu pour l'instant.</p>
+      <div className="w-12 h-12 mx-auto mb-4 rounded-2xl bg-black/[0.04] flex items-center justify-center text-black/30">
+        <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.5V19a1 1 0 001 1h3v-5H3zm7-9.5V19a1 1 0 001 1h2a1 1 0 001-1V4a1 1 0 00-1-1h-2a1 1 0 00-1 1zm7 5V19a1 1 0 001 1h3v-8h-3a1 1 0 00-1 1z" />
+        </svg>
+      </div>
+      <p className="text-black/40 text-[14px]">Aucun pixel vendu pour l&apos;instant.</p>
       <Link
         href="/?buy=1"
-        className="inline-block mt-4 px-5 py-2.5 bg-black text-white text-[13px] font-semibold rounded-xl hover:bg-zinc-800 transition-colors"
+        className="inline-block mt-4 px-5 py-2.5 bg-accent text-white text-[13px] font-semibold rounded-xl hover:bg-accent-700 transition-colors"
       >
         Soyez le premier
       </Link>

@@ -16,7 +16,7 @@ export default function SuccessPage() {
       <div className="flex items-center justify-center gap-3">
         <Link
           href="/"
-          className="px-5 py-2.5 bg-black text-white text-[13px] font-semibold rounded-xl hover:bg-zinc-800 transition-colors"
+          className="px-5 py-2.5 bg-accent text-white text-[13px] font-semibold rounded-xl hover:bg-accent-700 transition-colors"
         >
           Voir le canvas
         </Link>

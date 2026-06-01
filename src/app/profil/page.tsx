@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@/components/AuthProvider";
+import { useToast } from "@/components/ToastProvider";
 import { usePixels } from "@/lib/usePixels";
 import { useOffers } from "@/lib/useOffers";
 import { buyResale, listBlock, respondOffer, unlistBlock } from "@/lib/api";
@@ -32,8 +33,19 @@ export default function ProfilPage() {
 
   if (loading) {
     return (
-      <div className="max-w-3xl mx-auto px-5 py-16 text-center text-black/40">
-        Chargement…
+      <div className="max-w-3xl mx-auto px-5 py-8">
+        <div className="flex items-center gap-4 mb-8">
+          <div className="w-14 h-14 rounded-full bg-black/[0.06] animate-pulse" />
+          <div className="flex-1 space-y-2">
+            <div className="h-4 w-40 bg-black/[0.06] rounded animate-pulse" />
+            <div className="h-3 w-24 bg-black/[0.06] rounded animate-pulse" />
+          </div>
+        </div>
+        <div className="grid grid-cols-3 gap-3">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="h-20 rounded-2xl bg-black/[0.04] animate-pulse" />
+          ))}
+        </div>
       </div>
     );
   }
@@ -41,13 +53,18 @@ export default function ProfilPage() {
   if (!user) {
     return (
       <div className="max-w-md mx-auto px-5 py-20 text-center">
+        <div className="w-14 h-14 mx-auto mb-5 rounded-2xl bg-accent-soft text-accent flex items-center justify-center">
+          <svg className="w-7 h-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.5 20.1a7.5 7.5 0 0115 0A17.9 17.9 0 0112 21.75c-2.7 0-5.2-.6-7.5-1.65z" />
+          </svg>
+        </div>
         <h1 className="text-2xl font-bold tracking-tight mb-2">Mon profil</h1>
         <p className="text-[14px] text-black/45 mb-6">
           Connectez-vous pour gérer vos pixels, ventes et offres.
         </p>
         <button
           onClick={signInWithGoogle}
-          className="px-6 py-3 bg-black text-white text-[14px] font-semibold rounded-xl hover:bg-zinc-800 transition-colors"
+          className="px-6 py-3 bg-accent text-white text-[14px] font-semibold rounded-xl hover:bg-accent-700 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-offset-2"
         >
           Se connecter avec Google
         </button>
@@ -127,7 +144,7 @@ export default function ProfilPage() {
           <p className="text-black/40 text-[14px]">Vous ne possédez pas encore de pixels.</p>
           <Link
             href="/?buy=1"
-            className="inline-block mt-4 px-5 py-2.5 bg-black text-white text-[13px] font-semibold rounded-xl hover:bg-zinc-800 transition-colors"
+            className="inline-block mt-4 px-5 py-2.5 bg-accent text-white text-[13px] font-semibold rounded-xl hover:bg-accent-700 transition-colors"
           >
             Acheter des pixels
           </Link>
@@ -167,6 +184,7 @@ function BlockThumb({ block }: { block: PixelBlock }) {
 }
 
 function OwnedBlockCard({ block }: { block: PixelBlock }) {
+  const toast = useToast();
   const [price, setPrice] = useState<string>(
     block.salePrice ? String(block.salePrice) : "",
   );
@@ -183,8 +201,11 @@ function OwnedBlockCard({ block }: { block: PixelBlock }) {
     setBusy(true);
     try {
       await listBlock(block.id, p);
+      toast.success(`Bloc mis en vente à ${formatEUR(p)}.`);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Erreur.");
+      const msg = e instanceof Error ? e.message : "Erreur.";
+      setErr(msg);
+      toast.error(msg);
     } finally {
       setBusy(false);
     }
@@ -195,8 +216,11 @@ function OwnedBlockCard({ block }: { block: PixelBlock }) {
     setErr(null);
     try {
       await unlistBlock(block.id);
+      toast.success("Bloc retiré de la vente.");
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Erreur.");
+      const msg = e instanceof Error ? e.message : "Erreur.";
+      setErr(msg);
+      toast.error(msg);
     } finally {
       setBusy(false);
     }
@@ -241,7 +265,7 @@ function OwnedBlockCard({ block }: { block: PixelBlock }) {
           <button
             onClick={doList}
             disabled={busy}
-            className="text-[12px] font-semibold px-3 py-1.5 rounded-lg bg-black text-white hover:bg-zinc-800 disabled:opacity-40"
+            className="text-[12px] font-semibold px-3 py-1.5 rounded-lg bg-accent text-white hover:bg-accent-700 disabled:opacity-40 transition-colors"
           >
             Mettre en vente
           </button>
@@ -253,6 +277,7 @@ function OwnedBlockCard({ block }: { block: PixelBlock }) {
 }
 
 function ReceivedOfferRow({ offer }: { offer: Offer }) {
+  const toast = useToast();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -261,8 +286,15 @@ function ReceivedOfferRow({ offer }: { offer: Offer }) {
     setErr(null);
     try {
       await respondOffer(offer.id, action);
+      toast.success(
+        action === "accept"
+          ? "Offre acceptée. L'acheteur va finaliser le paiement."
+          : "Offre refusée.",
+      );
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Erreur.");
+      const msg = e instanceof Error ? e.message : "Erreur.";
+      setErr(msg);
+      toast.error(msg);
     } finally {
       setBusy(false);
     }
@@ -293,7 +325,7 @@ function ReceivedOfferRow({ offer }: { offer: Offer }) {
       <button
         onClick={() => respond("accept")}
         disabled={busy}
-        className="text-[12px] font-semibold px-3 py-1.5 rounded-lg bg-black text-white hover:bg-zinc-800 disabled:opacity-40"
+        className="text-[12px] font-semibold px-3 py-1.5 rounded-lg bg-accent text-white hover:bg-accent-700 disabled:opacity-40 transition-colors"
       >
         Accepter
       </button>
@@ -302,6 +334,7 @@ function ReceivedOfferRow({ offer }: { offer: Offer }) {
 }
 
 function SentOfferRow({ offer }: { offer: Offer }) {
+  const toast = useToast();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const s = offer.blockSnapshot;
@@ -311,8 +344,11 @@ function SentOfferRow({ offer }: { offer: Offer }) {
     setErr(null);
     try {
       await respondOffer(offer.id, "cancel");
+      toast.info("Offre annulée.");
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Erreur.");
+      const msg = e instanceof Error ? e.message : "Erreur.";
+      setErr(msg);
+      toast.error(msg);
     } finally {
       setBusy(false);
     }
@@ -324,7 +360,9 @@ function SentOfferRow({ offer }: { offer: Offer }) {
     try {
       await buyResale(offer.blockId);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Erreur.");
+      const msg = e instanceof Error ? e.message : "Erreur.";
+      setErr(msg);
+      toast.error(msg);
       setBusy(false);
     }
   }
@@ -349,7 +387,7 @@ function SentOfferRow({ offer }: { offer: Offer }) {
         <button
           onClick={pay}
           disabled={busy}
-          className="text-[12px] font-semibold px-3 py-1.5 rounded-lg bg-black text-white hover:bg-zinc-800 disabled:opacity-40"
+          className="text-[12px] font-semibold px-3 py-1.5 rounded-lg bg-accent text-white hover:bg-accent-700 disabled:opacity-40 transition-colors"
         >
           Payer
         </button>

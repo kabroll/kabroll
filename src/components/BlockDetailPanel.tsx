@@ -6,6 +6,8 @@
 
 import { useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
+import { useToast } from "@/components/ToastProvider";
+import { Button } from "@/components/ui";
 import { buyResale, makeOffer, unlistBlock } from "@/lib/api";
 import { MIN_SALE_PRICE_EUR, formatEUR, formatNumber } from "@/lib/constants";
 import type { PixelBlock } from "@/lib/types";
@@ -17,11 +19,11 @@ interface Props {
 
 export default function BlockDetailPanel({ block, onClose }: Props) {
   const { user, signInWithGoogle } = useAuth();
+  const toast = useToast();
   const [offerOpen, setOfferOpen] = useState(false);
   const [amount, setAmount] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
 
   const isOwner = !!user && block.ownerId === user.uid;
   const pixels = block.w * block.h;
@@ -31,19 +33,27 @@ export default function BlockDetailPanel({ block, onClose }: Props) {
 
   async function handleBuy() {
     setError(null);
-    if (!user) return signInWithGoogle();
+    if (!user) {
+      toast.info("Connectez-vous pour acheter ce bloc.");
+      return signInWithGoogle();
+    }
     setLoading(true);
     try {
       await buyResale(block.id); // redirige vers Stripe
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Erreur.");
+      const msg = e instanceof Error ? e.message : "Erreur.";
+      setError(msg);
+      toast.error(msg);
       setLoading(false);
     }
   }
 
   async function handleOffer() {
     setError(null);
-    if (!user) return signInWithGoogle();
+    if (!user) {
+      toast.info("Connectez-vous pour faire une offre.");
+      return signInWithGoogle();
+    }
     const amt = Number(amount);
     if (!Number.isFinite(amt) || amt < MIN_SALE_PRICE_EUR) {
       setError(`Montant minimum : ${formatEUR(MIN_SALE_PRICE_EUR)}.`);
@@ -52,11 +62,13 @@ export default function BlockDetailPanel({ block, onClose }: Props) {
     setLoading(true);
     try {
       await makeOffer(block.id, amt);
-      setNotice("Offre envoyée ! Le propriétaire sera notifié.");
+      toast.success("Offre envoyée ! Le propriétaire sera notifié.");
       setOfferOpen(false);
       setAmount("");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Erreur.");
+      const msg = e instanceof Error ? e.message : "Erreur.";
+      setError(msg);
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
@@ -67,19 +79,43 @@ export default function BlockDetailPanel({ block, onClose }: Props) {
     setLoading(true);
     try {
       await unlistBlock(block.id);
-      setNotice("Bloc retiré de la vente.");
+      toast.success("Bloc retiré de la vente.");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Erreur.");
+      const msg = e instanceof Error ? e.message : "Erreur.";
+      setError(msg);
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
   }
 
+  async function handleShare() {
+    const url =
+      typeof window !== "undefined"
+        ? `${window.location.origin}/?block=${block.id}&x=${block.x}&y=${block.y}&w=${block.w}&h=${block.h}`
+        : "";
+    const shareData = {
+      title: "unmillion.fr",
+      text: `Regarde ce bloc de pixels sur unmillion.fr (${block.w}×${block.h})`,
+      url,
+    };
+    try {
+      if (navigator.share) {
+        await navigator.share(shareData);
+      } else {
+        await navigator.clipboard.writeText(url);
+        toast.success("Lien copié dans le presse-papier !");
+      }
+    } catch {
+      /* l'utilisateur a annulé le partage */
+    }
+  }
+
   return (
     <>
-      <div className="fixed inset-0 z-40 bg-black/20 sm:hidden" onClick={onClose} />
+      <div className="fixed inset-0 z-40 bg-black/20 sm:hidden animate-fade-in" onClick={onClose} />
 
-      <div className="fixed z-50 inset-x-0 bottom-0 sm:inset-x-auto sm:bottom-6 sm:right-6 sm:w-[380px] bg-white rounded-t-2xl sm:rounded-2xl shadow-[0_8px_60px_rgba(0,0,0,0.18)] border border-black/[0.06] max-h-[88vh] flex flex-col">
+      <div className="fixed z-50 inset-x-0 bottom-0 sm:inset-x-auto sm:bottom-6 sm:right-6 sm:w-[380px] bg-white rounded-t-2xl sm:rounded-2xl shadow-[0_8px_60px_rgba(0,0,0,0.18)] border border-black/[0.06] max-h-[88vh] flex flex-col animate-panel-up">
         {/* En-tête */}
         <div className="flex items-start gap-3 px-5 py-3.5 border-b border-black/[0.06] shrink-0">
           <div className="w-12 h-12 rounded-lg overflow-hidden border border-black/10 shrink-0 bg-zinc-100">
@@ -98,6 +134,16 @@ export default function BlockDetailPanel({ block, onClose }: Props) {
               {block.w} × {block.h} · {formatNumber(pixels)} px · ({block.x}, {block.y})
             </div>
           </div>
+          <button
+            onClick={handleShare}
+            className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-black/[0.06] text-black/35 hover:text-black/70 transition-colors"
+            aria-label="Partager"
+            title="Partager"
+          >
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M7.2 10.6a3 3 0 100 2.8m0-2.8a3 3 0 110 2.8m0-2.8l9.6-5.4m-9.6 8.2l9.6 5.4M16.8 5.2a3 3 0 100-.1zm0 13.6a3 3 0 100 .1z" />
+            </svg>
+          </button>
           <button
             onClick={onClose}
             className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-black/[0.06] text-black/30 hover:text-black/60 transition-colors"
@@ -118,7 +164,7 @@ export default function BlockDetailPanel({ block, onClose }: Props) {
               href={block.link}
               target="_blank"
               rel="noopener noreferrer"
-              className="block text-[13px] text-blue-600 truncate hover:underline"
+              className="block text-[13px] text-accent truncate hover:underline"
             >
               {block.link}
             </a>
@@ -139,7 +185,7 @@ export default function BlockDetailPanel({ block, onClose }: Props) {
           )}
 
           {reservedForMe && (
-            <div className="text-[12px] text-blue-700 bg-blue-50 border border-blue-100 rounded-xl px-3 py-2">
+            <div className="text-[12px] text-accent bg-accent-soft border border-accent/15 rounded-xl px-3 py-2">
               Votre offre a été acceptée — finalisez le paiement ci-dessous.
             </div>
           )}
@@ -149,11 +195,6 @@ export default function BlockDetailPanel({ block, onClose }: Props) {
             </div>
           )}
 
-          {notice && (
-            <div className="text-[12px] text-green-700 bg-green-50 border border-green-100 rounded-xl px-3 py-2">
-              {notice}
-            </div>
-          )}
           {error && (
             <div className="text-[12px] text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2">
               {error}
@@ -172,7 +213,8 @@ export default function BlockDetailPanel({ block, onClose }: Props) {
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
                 placeholder="ex. 150"
-                className="w-full bg-black/[0.02] border border-black/[0.06] rounded-xl px-3.5 py-3 text-[13px] focus:outline-none focus:border-black/20"
+                autoFocus
+                className="w-full bg-black/[0.02] border border-black/[0.06] rounded-xl px-3.5 py-3 text-[13px] focus:outline-none focus:border-accent/40 transition-colors"
               />
             </div>
           )}
@@ -183,13 +225,9 @@ export default function BlockDetailPanel({ block, onClose }: Props) {
           {isOwner ? (
             <>
               {block.forSale ? (
-                <button
-                  onClick={handleUnlist}
-                  disabled={loading}
-                  className="w-full border border-black/10 rounded-2xl py-3.5 font-semibold text-[14px] hover:bg-black/[0.03] transition-colors disabled:opacity-40"
-                >
+                <Button onClick={handleUnlist} loading={loading} variant="secondary" fullWidth className="py-3.5 rounded-2xl">
                   Retirer de la vente
-                </button>
+                </Button>
               ) : (
                 <p className="text-[12px] text-black/40 text-center">
                   Vous possédez ce bloc — mettez-le en vente depuis votre profil.
@@ -199,32 +237,24 @@ export default function BlockDetailPanel({ block, onClose }: Props) {
           ) : (
             <>
               {canBuyNow && (
-                <button
-                  onClick={handleBuy}
-                  disabled={loading}
-                  className="w-full bg-black hover:bg-zinc-800 active:bg-zinc-900 disabled:opacity-40 rounded-2xl py-3.5 font-semibold text-[14px] text-white transition-colors shadow-sm"
-                >
-                  {loading
-                    ? "Redirection vers Stripe..."
-                    : `Acheter pour ${formatEUR(block.salePrice!)}`}
-                </button>
+                <Button onClick={handleBuy} loading={loading} fullWidth className="py-3.5 rounded-2xl">
+                  {loading ? "Redirection…" : `Acheter pour ${formatEUR(block.salePrice!)}`}
+                </Button>
               )}
               {!reservedForOther &&
                 (offerOpen ? (
-                  <button
-                    onClick={handleOffer}
-                    disabled={loading}
-                    className="w-full border border-black/10 rounded-2xl py-3.5 font-semibold text-[14px] hover:bg-black/[0.03] transition-colors disabled:opacity-40"
-                  >
-                    Envoyer l'offre
-                  </button>
+                  <Button onClick={handleOffer} loading={loading} variant="secondary" fullWidth className="py-3.5 rounded-2xl">
+                    Envoyer l&apos;offre
+                  </Button>
                 ) : (
-                  <button
+                  <Button
                     onClick={() => (user ? setOfferOpen(true) : signInWithGoogle())}
-                    className="w-full border border-black/10 rounded-2xl py-3.5 font-semibold text-[14px] hover:bg-black/[0.03] transition-colors"
+                    variant="secondary"
+                    fullWidth
+                    className="py-3.5 rounded-2xl"
                   >
                     {user ? "Faire une offre" : "Se connecter pour acheter / proposer"}
-                  </button>
+                  </Button>
                 ))}
             </>
           )}

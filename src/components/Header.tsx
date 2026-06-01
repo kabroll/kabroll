@@ -6,6 +6,7 @@ import { useAuth } from "@/components/AuthProvider";
 
 const NAV = [
   { href: "/", label: "Canvas live" },
+  { href: "/marketplace", label: "Marketplace" },
   { href: "/leaderboard", label: "Classement" },
   { href: "/profil", label: "Mon profil" },
 ];
@@ -18,7 +19,7 @@ export default function Header() {
     <header className="bg-white border-b border-black/[0.06] sticky top-0 z-30">
       <div className="max-w-7xl mx-auto px-5 h-[58px] flex items-center justify-between gap-8">
         <Link href="/" className="flex items-center gap-3 shrink-0 group">
-          <div className="w-8 h-8 bg-black rounded-lg flex items-center justify-center shrink-0 group-hover:bg-zinc-800 transition-colors">
+          <div className="w-8 h-8 bg-accent rounded-lg flex items-center justify-center shrink-0 group-hover:bg-accent-700 transition-colors">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
               <rect x="1" y="1" width="6" height="6" rx="1.5" fill="white" />
               <rect x="9" y="1" width="6" height="6" rx="1.5" fill="white" opacity="0.4" />
@@ -80,7 +81,7 @@ export default function Header() {
           )}
           <Link
             href="/?buy=1"
-            className="inline-block px-4 py-1.5 bg-black hover:bg-zinc-800 text-white text-[13px] font-semibold rounded-lg transition-colors shadow-sm"
+            className="inline-block px-4 py-1.5 bg-accent hover:bg-accent-700 text-white text-[13px] font-semibold rounded-lg transition-colors shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-offset-2"
           >
             Acheter des pixels
           </Link>

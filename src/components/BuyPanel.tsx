@@ -11,6 +11,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
 import { storage } from "@/lib/firebase";
 import { useAuth } from "@/components/AuthProvider";
+import { useToast } from "@/components/ToastProvider";
+import { Button } from "@/components/ui";
 import { clampSelection, isSelectionFree } from "@/lib/geometry";
 import {
   GRID_SIZE,
@@ -40,9 +42,10 @@ export default function BuyPanel({
   onClose,
 }: Props) {
   const { user, configured, signInWithGoogle } = useAuth();
+  const toast = useToast();
 
   const [fill, setFill] = useState<PixelFill>("color");
-  const [color, setColor] = useState("#111111");
+  const [color, setColor] = useState("#4f46e5");
 
   // ---- Image -------------------------------------------------------------
   const [file, setFile] = useState<File | null>(null);
@@ -83,6 +86,13 @@ export default function BuyPanel({
     lastPushedRef.current = target;
     onSelectionResize(target);
   }, [target, onSelectionResize]);
+
+  // Ajuste manuellement un champ de la sélection (mode couleur).
+  function setField(field: keyof Selection, value: number) {
+    const v = Math.max(0, Math.floor(value || 0));
+    const next = clampSelection({ ...original, [field]: v });
+    setOriginal(next);
+  }
 
   const pixels = target.w * target.h;
   const totalPrice = pixels * PRICE_PER_PIXEL_EUR;
@@ -164,6 +174,7 @@ export default function BuyPanel({
       return;
     }
     if (!user) {
+      toast.info("Connectez-vous pour finaliser votre achat.");
       await signInWithGoogle();
       return;
     }
@@ -206,9 +217,12 @@ export default function BuyPanel({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erreur lors de la création du paiement.");
       if (!data.url) throw new Error("Réponse de paiement invalide.");
+      toast.success("Redirection vers le paiement sécurisé…");
       window.location.href = data.url;
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Une erreur est survenue.");
+      const msg = e instanceof Error ? e.message : "Une erreur est survenue.";
+      setError(msg);
+      toast.error(msg);
       setLoading(false);
     }
   }
@@ -223,9 +237,9 @@ export default function BuyPanel({
 
   return (
     <>
-      <div className="fixed inset-0 z-40 bg-black/20 sm:hidden" onClick={onClose} />
+      <div className="fixed inset-0 z-40 bg-black/20 sm:hidden animate-fade-in" onClick={onClose} />
 
-      <div className="fixed z-50 inset-x-0 bottom-0 sm:inset-x-auto sm:bottom-6 sm:right-6 sm:w-[380px] bg-white rounded-t-2xl sm:rounded-2xl shadow-[0_8px_60px_rgba(0,0,0,0.18)] border border-black/[0.06] max-h-[88vh] flex flex-col">
+      <div className="fixed z-50 inset-x-0 bottom-0 sm:inset-x-auto sm:bottom-6 sm:right-6 sm:w-[380px] bg-white rounded-t-2xl sm:rounded-2xl shadow-[0_8px_60px_rgba(0,0,0,0.18)] border border-black/[0.06] max-h-[88vh] flex flex-col animate-panel-up">
         {/* En-tête */}
         <div className="flex items-start justify-between px-5 py-3.5 border-b border-black/[0.06] shrink-0">
           <div>
@@ -265,7 +279,7 @@ export default function BuyPanel({
                   className={
                     "py-3 rounded-xl text-[13px] font-medium border transition-all " +
                     (fill === opt
-                      ? "bg-black border-black text-white"
+                      ? "bg-accent border-accent text-white"
                       : "bg-white border-black/[0.08] text-black/50 hover:border-black/20")
                   }
                 >
@@ -273,6 +287,39 @@ export default function BuyPanel({
                 </button>
               ))}
             </div>
+          </div>
+
+          {/* Position & taille précises */}
+          <div>
+            <label className="block text-[11px] font-semibold text-black/35 uppercase tracking-wider mb-2">
+              Position &amp; taille
+            </label>
+            <div className="grid grid-cols-4 gap-2">
+              {([
+                ["x", "X", original.x],
+                ["y", "Y", original.y],
+                ["w", "Largeur", original.w],
+                ["h", "Hauteur", original.h],
+              ] as const).map(([key, lbl, val]) => (
+                <label key={key} className="block">
+                  <span className="block text-[10px] text-black/35 mb-1">{lbl}</span>
+                  <input
+                    type="number"
+                    min={key === "w" || key === "h" ? 1 : 0}
+                    max={GRID_SIZE}
+                    value={val}
+                    disabled={fill === "image" && (key === "w" || key === "h")}
+                    onChange={(e) => setField(key, Number(e.target.value))}
+                    className="w-full bg-black/[0.02] border border-black/[0.06] rounded-lg px-2 py-2 text-[13px] tabular-nums focus:outline-none focus:border-accent/40 disabled:opacity-40 transition-colors"
+                  />
+                </label>
+              ))}
+            </div>
+            {fill === "image" && (
+              <p className="text-[11px] text-black/30 mt-1.5">
+                La taille en mode image est définie par le diviseur ci-dessous.
+              </p>
+            )}
           </div>
 
           {fill === "color" ? (
@@ -345,7 +392,7 @@ export default function BuyPanel({
                         className={
                           "flex-1 py-1.5 rounded-lg text-[12px] font-medium border transition-all " +
                           (divisor === d
-                            ? "bg-black border-black text-white"
+                            ? "bg-accent border-accent text-white"
                             : "bg-white border-black/[0.08] text-black/50 hover:border-black/20")
                         }
                       >
@@ -362,7 +409,7 @@ export default function BuyPanel({
                       max={32}
                       value={divisor}
                       onChange={(e) => setDivisor(Number(e.target.value))}
-                      className="flex-1 accent-black"
+                      className="flex-1 accent-accent"
                     />
                   </div>
 
@@ -433,13 +480,9 @@ export default function BuyPanel({
             </span>
             <span className="text-[22px] font-bold">{formatEUR(totalPrice)}</span>
           </div>
-          <button
-            onClick={handlePay}
-            disabled={loading || !free}
-            className="w-full bg-black hover:bg-zinc-800 active:bg-zinc-900 disabled:opacity-40 disabled:cursor-not-allowed rounded-2xl py-4 font-semibold text-[15px] text-white transition-colors shadow-sm flex items-center justify-center gap-2"
-          >
+          <Button onClick={handlePay} loading={loading} disabled={!free} fullWidth className="py-4 rounded-2xl text-[15px]">
             {loading ? (
-              "Redirection vers Stripe..."
+              "Redirection vers le paiement…"
             ) : !user ? (
               "Se connecter pour acheter"
             ) : (
@@ -450,7 +493,7 @@ export default function BuyPanel({
                 Payer {formatEUR(totalPrice)}
               </>
             )}
-          </button>
+          </Button>
         </div>
       </div>
     </>
