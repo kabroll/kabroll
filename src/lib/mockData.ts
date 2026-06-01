@@ -28,4 +28,26 @@ const shapes: PixelBlock[] = [
   ...buildShapeBlocks("check", { ox: 150, oy: 640, cell: 12, idPrefix: "s-check", ownerName: "ok@valide.fr", purchaseId: "demo-check", label: "Validé", createdAt: T0 - 900_000 }),
 ];
 
-export const MOCK_BLOCKS: PixelBlock[] = [...banners, ...shapes];
+// Une douzaine de "faux comptes" : petites commandes de 1 à 70 pixels,
+// réparties dans des zones libres, pour donner l'impression que beaucoup de
+// monde a déjà acheté. Emails masqués à l'affichage (preuve sociale).
+const fakeAccounts: PixelBlock[] = [
+  { id: "f1", x: 60, y: 60, w: 1, h: 1, fill: "color", color: "#f43f5e", status: "active", ownerName: "tom.b@gmail.com", groupLabel: "Mon 1er pixel", purchaseId: "fa-1", message: "Premier !", createdAt: T0 - 120_000 },
+  { id: "f2", x: 920, y: 90, w: 2, h: 2, fill: "color", color: "#3b82f6", status: "active", ownerName: "sarah.k@gmail.com", purchaseId: "fa-2", createdAt: T0 - 240_000 },
+  { id: "f3", x: 880, y: 420, w: 3, h: 3, fill: "color", color: "#22c55e", status: "active", ownerName: "nina@icloud.com", purchaseId: "fa-3", createdAt: T0 - 480_000 },
+  { id: "f4", x: 70, y: 820, w: 4, h: 4, fill: "color", color: "#f59e0b", status: "active", ownerName: "paulo@gmail.com", purchaseId: "fa-4", createdAt: T0 - 720_000 },
+  { id: "f5", x: 470, y: 810, w: 5, h: 5, fill: "color", color: "#a855f7", status: "active", ownerName: "yanis.r@hotmail.fr", purchaseId: "fa-5", message: "Yanis était là", createdAt: T0 - 150_000 },
+  { id: "f6", x: 600, y: 870, w: 7, h: 10, fill: "color", color: "#ec4899", status: "active", ownerName: "lea@gmail.com", groupLabel: "Bloc rose", purchaseId: "fa-6", createdAt: T0 - 1_500_000 },
+  { id: "f7", x: 910, y: 560, w: 4, h: 3, fill: "color", color: "#06b6d4", status: "active", ownerName: "max.devs@gmail.com", purchaseId: "fa-7", link: "https://github.com", createdAt: T0 - 360_000 },
+  { id: "f8", x: 410, y: 430, w: 3, h: 2, fill: "color", color: "#14b8a6", status: "active", ownerName: "clara@yahoo.fr", purchaseId: "fa-8", createdAt: T0 - 90_000 },
+  { id: "f9", x: 300, y: 200, w: 7, h: 7, fill: "color", color: "#0ea5e9", status: "active", ownerName: "hugo_p@gmail.com", groupLabel: "Carré bleu", purchaseId: "fa-9", createdAt: T0 - 2_100_000 },
+  { id: "f10", x: 560, y: 420, w: 6, h: 5, fill: "color", color: "#eab308", status: "active", ownerName: "zoe@gmail.com", purchaseId: "fa-10", createdAt: T0 - 200_000 },
+  { id: "f11", x: 790, y: 660, w: 2, h: 1, fill: "color", color: "#111111", status: "active", ownerName: "ali.b@gmail.com", purchaseId: "fa-11", createdAt: T0 - 30_000 },
+  { id: "f12", x: 120, y: 500, w: 10, h: 5, fill: "color", color: "#84cc16", status: "active", ownerName: "manon@gmail.com", groupLabel: "Bannière verte", purchaseId: "fa-12", forSale: true, salePrice: 60, createdAt: T0 - 3_000_000 },
+
+  // Une création de faux compte en 2 couleurs (drapeau) = 45 px sur 2 blocs.
+  { id: "f13a", x: 950, y: 750, w: 5, h: 5, fill: "color", color: "#ef4444", status: "active", ownerName: "kevin.m@gmail.com", groupLabel: "Drapeau", purchaseId: "fa-13", createdAt: T0 - 420_000 },
+  { id: "f13b", x: 955, y: 750, w: 4, h: 5, fill: "color", color: "#ffffff", status: "active", ownerName: "kevin.m@gmail.com", groupLabel: "Drapeau", purchaseId: "fa-13", createdAt: T0 - 420_000 },
+];
+
+export const MOCK_BLOCKS: PixelBlock[] = [...banners, ...shapes, ...fakeAccounts];
