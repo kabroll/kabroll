@@ -6,6 +6,7 @@ import PixelCanvas from "@/components/PixelCanvas";
 import BuyPanel from "@/components/BuyPanel";
 import BlockDetailPanel from "@/components/BlockDetailPanel";
 import Onboarding from "@/components/Onboarding";
+import { CountdownPill } from "@/components/Countdown";
 import { Spinner } from "@/components/ui";
 import { usePixels } from "@/lib/usePixels";
 import { useCountUp } from "@/lib/useCountUp";
@@ -75,15 +76,17 @@ function CanvasView() {
       <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 bg-white/95 backdrop-blur border border-black/[0.06] rounded-full shadow-sm px-4 py-2 flex items-center gap-3 text-[12px] whitespace-nowrap animate-fade-in">
         <span className="font-semibold tabular-nums">{formatNumber(animatedSold)}</span>
         <span className="text-black/40">vendus</span>
-        <span className="w-px h-3.5 bg-black/10" />
-        <span className="font-semibold tabular-nums">{formatNumber(remaining)}</span>
-        <span className="text-black/40">restants</span>
+        <span className="hidden xs:inline w-px h-3.5 bg-black/10" />
+        <span className="hidden xs:inline font-semibold tabular-nums">{formatNumber(remaining)}</span>
+        <span className="hidden xs:inline text-black/40">restants</span>
         <span className="hidden sm:inline w-16 h-1.5 rounded-full bg-black/[0.08] overflow-hidden">
           <span
             className="block h-full bg-accent transition-[width] duration-700 ease-out"
             style={{ width: `${Math.max(2, pct)}%` }}
           />
         </span>
+        <span className="w-px h-3.5 bg-black/10" />
+        <CountdownPill />
       </div>
 
       {loading && (

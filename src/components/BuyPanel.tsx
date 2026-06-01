@@ -18,6 +18,7 @@ import {
   GRID_SIZE,
   MAX_BLOCK_SIDE,
   PRICE_PER_PIXEL_EUR,
+  isClosed,
   formatEUR,
   formatNumber,
 } from "@/lib/constants";
@@ -94,6 +95,7 @@ export default function BuyPanel({
     setOriginal(next);
   }
 
+  const closed = isClosed();
   const pixels = target.w * target.h;
   const totalPrice = pixels * PRICE_PER_PIXEL_EUR;
   const free = useMemo(
@@ -169,6 +171,10 @@ export default function BuyPanel({
   // ---- Paiement -----------------------------------------------------------
   async function handlePay() {
     setError(null);
+    if (closed) {
+      setError("L'œuvre est clôturée : le canvas est figé.");
+      return;
+    }
     if (!free) {
       setError("Cette zone contient déjà des pixels. Choisissez-en une autre.");
       return;
@@ -465,7 +471,13 @@ export default function BuyPanel({
             </div>
           )}
 
-          {!configured && (
+          {closed && (
+            <div className="text-[12px] text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2">
+              L&apos;œuvre est clôturée : le canvas est désormais figé.
+            </div>
+          )}
+
+          {!configured && !closed && (
             <div className="text-[12px] text-amber-700 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
               Mode démo : connectez Firebase et Stripe pour activer l'achat réel.
             </div>
@@ -480,8 +492,10 @@ export default function BuyPanel({
             </span>
             <span className="text-[22px] font-bold">{formatEUR(totalPrice)}</span>
           </div>
-          <Button onClick={handlePay} loading={loading} disabled={!free} fullWidth className="py-4 rounded-2xl text-[15px]">
-            {loading ? (
+          <Button onClick={handlePay} loading={loading} disabled={!free || closed} fullWidth className="py-4 rounded-2xl text-[15px]">
+            {closed ? (
+              "Œuvre clôturée"
+            ) : loading ? (
               "Redirection vers le paiement…"
             ) : !user ? (
               "Se connecter pour acheter"

@@ -5,6 +5,7 @@
 
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui";
+import { CountdownBanner } from "@/components/Countdown";
 import { PRICE_PER_PIXEL_EUR, formatEUR } from "@/lib/constants";
 
 const STORAGE_KEY = "unmillion.onboarded.v1";
@@ -81,6 +82,8 @@ export default function Onboarding() {
           </div>
           <h2 className="text-[20px] font-bold tracking-tight mb-2">{s.title}</h2>
           <p className="text-[14px] text-black/55 leading-relaxed">{s.body}</p>
+
+          {step === 0 && <CountdownBanner className="mt-6" />}
         </div>
 
         {/* Indicateurs */}

@@ -18,6 +18,7 @@ import {
   PIXELS_COLLECTION,
   PRICE_PER_PIXEL_CENTS,
   RESERVATION_TTL_MS,
+  isClosed,
 } from "@/lib/constants";
 import type { PixelBlock, Selection } from "@/lib/types";
 
@@ -42,6 +43,14 @@ export async function POST(req: Request) {
       return NextResponse.json(
         { error: "Backend non configuré (Stripe manquant)." },
         { status: 503 },
+      );
+    }
+
+    // L'œuvre est figée après la date de clôture : plus aucun achat/rachat.
+    if (isClosed()) {
+      return NextResponse.json(
+        { error: "L'œuvre est clôturée : le canvas est figé." },
+        { status: 403 },
       );
     }
 

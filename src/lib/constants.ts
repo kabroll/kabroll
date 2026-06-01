@@ -34,6 +34,22 @@ export const OFFERS_COLLECTION = "offers";
 /** Montant minimal d'une offre / d'une mise en vente (en euros). */
 export const MIN_SALE_PRICE_EUR = 1;
 
+/**
+ * Date de clôture de l'œuvre : après cette échéance, le canvas est figé
+ * (plus d'achat ni de revente). ISO avec fuseau (Europe/Paris = +02:00 l'été).
+ */
+export const CLOSING_DATE_ISO = "2026-07-01T00:00:00+02:00";
+
+/** Renvoie le nombre de millisecondes restantes avant la clôture (>= 0). */
+export function msUntilClosing(now: number = Date.now()): number {
+  return Math.max(0, new Date(CLOSING_DATE_ISO).getTime() - now);
+}
+
+/** True si l'œuvre est clôturée (échéance dépassée). */
+export function isClosed(now: number = Date.now()): boolean {
+  return msUntilClosing(now) === 0;
+}
+
 /** Formatte un montant en euros pour l'affichage (locale FR). */
 export function formatEUR(amount: number): string {
   return new Intl.NumberFormat("fr-FR", {
