@@ -6,7 +6,10 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "seed": "node scripts/seed.mjs",
+    "seed:dry": "node scripts/seed.mjs --dry",
+    "seed:clear": "node scripts/seed.mjs --clear"
   },
   "dependencies": {
     "firebase": "^11.2.0",
