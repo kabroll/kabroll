@@ -105,10 +105,13 @@ export default function EditorToolbar({ onContinue }: Props) {
           )}
         </div>
 
-        {/* Ligne palette */}
-        <div className="flex items-center gap-1.5 px-0.5 overflow-x-auto scrollbar-thin">
+        {/* Ligne palette — grille auto-adaptative :
+            les cubes remplissent la largeur, rétrécissent pour tenir sur une
+            ligne, et passent en plusieurs rangées (grille) si nécessaire. */}
+        <div className="flex items-center gap-1.5">
+          {/* Sélecteur de couleur libre (taille fixe, toujours à gauche) */}
           <label
-            className="relative w-7 h-7 rounded-lg border-2 border-white shadow ring-1 ring-black/10 shrink-0 cursor-pointer overflow-hidden"
+            className="relative w-7 h-7 sm:w-8 sm:h-8 rounded-lg border-2 border-white shadow ring-1 ring-black/10 shrink-0 cursor-pointer overflow-hidden"
             title="Couleur personnalisée"
             style={{ background: "conic-gradient(red, yellow, lime, aqua, blue, magenta, red)" }}
           >
@@ -117,30 +120,36 @@ export default function EditorToolbar({ onContinue }: Props) {
 
           <span className="w-px h-6 bg-black/10 shrink-0" />
 
-          {palette.map((c) => {
-            const active = c.toLowerCase() === color.toLowerCase();
-            return (
-              <button
-                key={c}
-                onClick={() => pick(c)}
-                title={c}
-                aria-label={`Couleur ${c}`}
-                className={
-                  "w-7 h-7 rounded-lg shrink-0 transition-transform " +
-                  (active ? "ring-2 ring-accent ring-offset-1 scale-110" : "ring-1 ring-black/10 hover:scale-105")
-                }
-                style={{ backgroundColor: c }}
-              />
-            );
-          })}
+          {/* Grille de couleurs : s'étend pour remplir, wrap si trop nombreuses */}
+          <div
+            className="flex-1 grid gap-1.5"
+            style={{ gridTemplateColumns: "repeat(auto-fill, minmax(26px, 1fr))" }}
+          >
+            {palette.map((c) => {
+              const active = c.toLowerCase() === color.toLowerCase();
+              return (
+                <button
+                  key={c}
+                  onClick={() => pick(c)}
+                  title={c}
+                  aria-label={`Couleur ${c}`}
+                  className={
+                    "aspect-square w-full rounded-lg transition-transform " +
+                    (active ? "ring-2 ring-accent ring-offset-1 scale-105 z-10" : "ring-1 ring-black/10 hover:scale-105")
+                  }
+                  style={{ backgroundColor: c }}
+                />
+              );
+            })}
+          </div>
 
-          {/* Effacer (mobile, en fin de palette) */}
+          {/* Effacer (mobile, à droite de la palette) */}
           {count > 0 && (
             <button
               onClick={clearPainted}
               title="Tout effacer"
               aria-label="Tout effacer"
-              className="sm:hidden ml-1 shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-black/45 hover:text-red-600 hover:bg-red-50 transition-colors"
+              className="sm:hidden shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-black/45 hover:text-red-600 hover:bg-red-50 transition-colors"
             >
               <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M6 7h12M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-7 4v6m4-6v6M5 7l1 13a1 1 0 001 1h10a1 1 0 001-1l1-13" />
