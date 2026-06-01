@@ -128,7 +128,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const cred = await createUserWithEmailAndPassword(auth!, email.trim(), password);
       if (name && name.trim()) {
         await updateProfile(cred.user, { displayName: name.trim() });
-        setUser({ ...cred.user });
+        // On rafraîchit l'utilisateur SANS le copier (le spread casserait les
+        // méthodes comme getIdToken). onAuthStateChanged garde l'instance à jour ;
+        // on force juste un re-render avec la même instance.
+        setUser(auth!.currentUser);
       }
       toast.success("Compte créé, bienvenue ! 🎉");
     } catch (e) {
